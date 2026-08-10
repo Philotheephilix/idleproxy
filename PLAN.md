@@ -123,7 +123,7 @@ executed. Discovering an MCP auth problem on Aug 12 would be fatal; tonight it c
 ### 1.4 Tier 1 container (3 h) · retires R5
 
 - [ ] `Dockerfile.job`: `node:22-slim`, `@anthropic-ai/claude-code` installed, non-root uid 10001.
-- [ ] `docker network create --internal ipx-jobnet` + the `ipx-egress` nginx forward proxy
+- [ ] `docker network create --internal ipx-jobnet` + the `ipx-egress` squid forward proxy
       (`egress-proxy.conf`) allowing `CONNECT api.anthropic.com:443` only. Attach the proxy to both
       networks; attach jobs to `ipx-jobnet` only.
 - [ ] `src/node/tier1.ts`: run flags exactly as SPEC §5 — `--read-only`, tmpfs `/work` and

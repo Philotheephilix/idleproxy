@@ -33,6 +33,30 @@ Workflow id: `9ujfl46sgqte26n2mho7k`.
 | 2026-08-10 | Manual-execute smoke test of the payout workflow (0.001 USDC, bypassing the agent to validate the workflow itself) | [`0x2f7de5fd...6e9cbc3c02c1f6`](https://sepolia.basescan.org/tx/0x2f7de5fd5f57acff1fcb5883257d3ba245b8f3e8042a519fa76e9cbc3c02c1f6) | `sponsored: true`, `receiptStatus: success`. Confirms the Condition's balance comparison and the transfer step both resolve correctly from webhook-shaped input |
 | 2026-08-10 | **Agent-driven payout through the workflow.** `idleproxy treasurer` → Claude Code + KeeperHub MCP → `execute_workflow("9ujfl46sgqte26n2mho7k", {body:{to,amount,providerId}})` → `get_execution` polled to terminal | [`0x5ff4369d...11c3535290b96752`](https://sepolia.basescan.org/tx/0x5ff4369d01cde56e7481132554a3e04efa2d54f56952db6811c3535290b96752) | Agent's own report: "Solvency gate pass (balance 0.023001 >= 0.016000), transfer verified on-chain, sponsored gas." **This is the payout path going forward** — replaces the v1 raw `execute_transfer` call above |
 
+## Prepaid keys (D9) and Tier 1 (container), first real runs
+
+| Date (UTC) | What | Tx | Notes |
+|---|---|---|---|
+| 2026-08-10 | `POST /api/keys`: real x402 top-up (60000 micros) mints an `ipx_sk_` key; the key then pays for a `/v1/messages` call with **no 402** | [`0x00a98eca...61fd7290b33`](https://sepolia.basescan.org/tx/0x00a98ecaed769d53955938f95589bd6d4b243627326f31fb7d26661fd7290b33) | Balance correctly debited 60000 → 40000 after one band-S call. Confirms D9: "change one env var and your SDK works" is real on the prepaid path |
+
+Tier 1 (containerized, tool-enabled) verified live, no chain transaction involved — this is the
+isolation proof, not a settlement:
+
+- A real job ran `PONG` through the container end to end (`docker run` → bwrap-sandboxed Claude Code
+  → `--allowed-tools Bash,Read,Edit,Write,Glob,Grep`).
+- **Egress-lock proof:** a job instructed to run `fetch('https://example.com')` from inside the
+  container via the Bash tool got `BLOCKED: fetch failed` — the `ipx-jobnet` internal Docker network
+  genuinely has no route to the internet except through the `ipx-egress` squid proxy, which itself
+  only allows `CONNECT api.anthropic.com:443`.
+
+Six real bugs surfaced getting Tier 1 working, documented in SPEC.md §5 rather than repeated here:
+missing `bubblewrap`/`socat` in the job image, `/tmp` needing its own tmpfs, every tmpfs needing
+explicit `uid=10001,gid=10001` ownership, `.claude` specifically needing its **own** tmpfs (not left
+to auto-create root-owned under `/home/job`), `--permission-mode bypassPermissions` silently forced
+off under the CLI's own hardening (fixed with an explicit `--allowed-tools` list instead), and
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` needing to be **off** — it nests a bubblewrap namespace Docker's
+default seccomp refuses, and protects against a threat that doesn't apply here.
+
 A real bug surfaced and was fixed during this test: `payoutIdempotencyKey`'s `period` was a
 date-only string, but SPEC.md §6 runs the treasurer on a $-threshold as well as daily, so two
 threshold-triggered batches on the same calendar day for the same amount collided on the same key —

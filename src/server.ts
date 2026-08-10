@@ -6,13 +6,14 @@ import type Database from "better-sqlite3";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Env, ChainProfile } from "./config.js";
 import { KeeperHubClient } from "./keeperhub.js";
-import { bandFor, PricingError, type Band } from "./pricing.js";
+import { bandFor, PricingError, BANDS, type Band } from "./pricing.js";
 import { verifyPayment, buildSettlementCall, type TransferAuthorization } from "./x402.js";
 import { filterInput } from "./filter.js";
 import { creditProvider } from "./ledger.js";
 import { runTier0 } from "./node/tier0.js";
 import { signAttestation, sha256Hex, type AttestationInput } from "./attest.js";
 import { NodeRegistry, newJobId, type ConnectedNode } from "./dispatch.js";
+import { randomBytes } from "node:crypto";
 
 /** House adapter: what the router itself can serve tonight, in-process,
  * before the WS provider-node registry (dispatch.ts) takes over routing.
@@ -66,6 +67,29 @@ function decodePaymentHeader(header: string): X402Payment | null {
   } catch {
     return null;
   }
+}
+
+/** Shared simulate -> broadcast -> poll settlement, used by both the
+ * per-job x402 path and prepaid-key top-ups (SPEC.md §6). */
+async function settleX402Payment(
+  keeperhub: KeeperHubClient,
+  chainProfile: ChainProfile,
+  payment: X402Payment,
+): Promise<{ ok: true; transactionHash?: string } | { ok: false; reason: string }> {
+  const call = buildSettlementCall(payment.auth, payment.signature, chainProfile.usdcAddress, chainProfile.chainId);
+  const sim = await keeperhub.simulateContractCall(call);
+  if (sim.wouldRevert) {
+    return { ok: false, reason: `settlement would revert: ${sim.revertReason}` };
+  }
+  const broadcast = await keeperhub.contractCall(call, payment.auth.nonce);
+  if ("kind" in broadcast) {
+    return { ok: false, reason: `settlement ${broadcast.kind}` };
+  }
+  const final = await keeperhub.pollToTerminal(broadcast.executionId);
+  if (final.status !== "completed" || !final.receipts.every((r) => r.verified)) {
+    return { ok: false, reason: "settlement failed to verify" };
+  }
+  return { ok: true, transactionHash: final.transactionHash };
 }
 
 function nonceUnused(db: Database.Database, nonce: string): boolean {
@@ -236,21 +260,12 @@ export function buildServer(deps: ServerDeps): Hono {
     // --- Settle (x402 path only — prepaid already settled at top-up) ---
     let settlementTx: string | undefined;
     if (payment) {
-      const call = buildSettlementCall(payment.auth, payment.signature, chainProfile.usdcAddress, chainProfile.chainId);
-      const sim = await keeperhub.simulateContractCall(call);
-      if (sim.wouldRevert) {
+      const settled = await settleX402Payment(keeperhub, chainProfile, payment);
+      if (!settled.ok) {
         releaseNonce(db, payment.auth.nonce);
-        return c.json({ error: { type: "api_error", message: `settlement would revert: ${sim.revertReason}` } }, 502);
+        return c.json({ error: { type: "api_error", message: settled.reason } }, 502);
       }
-      const broadcast = await keeperhub.contractCall(call, payment.auth.nonce);
-      if ("kind" in broadcast) {
-        return c.json({ error: { type: "api_error", message: `settlement ${broadcast.kind}` } }, 502);
-      }
-      const final = await keeperhub.pollToTerminal(broadcast.executionId);
-      if (final.status !== "completed" || !final.receipts.every((r) => r.verified)) {
-        return c.json({ error: { type: "api_error", message: "settlement failed to verify" } }, 502);
-      }
-      settlementTx = final.transactionHash;
+      settlementTx = settled.transactionHash;
       db.prepare(
         `INSERT INTO payments_in (id, kind, amount_micros, payer, nonce, settlement_tx, settlement_status, created_at)
          VALUES (?, 'x402', ?, ?, ?, ?, 'settled', ?)`,
@@ -317,6 +332,83 @@ export function buildServer(deps: ServerDeps): Hono {
       stop_reason: "end_turn",
       usage: { input_tokens: result.inputTokens ?? 0, output_tokens: result.outputTokens ?? 0 },
     });
+  });
+
+  // --- Prepaid keys (SPEC.md D9) — x402 payment mints an ipx_sk_ key with
+  // full credit; subsequent /v1/messages calls debit it locally and never
+  // see a 402. This is the path where "change one env var and your
+  // existing SDK works" is literally true. ---
+  const MIN_TOPUP_MICROS = BANDS[0].priceMicros;
+  const MAX_TOPUP_MICROS = 10_000_000n; // 10 USDC ceiling, sane for a demo
+
+  app.post("/api/keys", async (c) => {
+    const paymentHeader = c.req.header("x-payment");
+    if (!paymentHeader) {
+      return c.json(
+        {
+          error: { type: "payment_required", message: "pay via X-PAYMENT to mint a prepaid key" },
+          accepts: [
+            {
+              scheme: "exact",
+              network: "base-sepolia",
+              asset: chainProfile.usdcAddress,
+              minAmountRequired: MIN_TOPUP_MICROS.toString(),
+              maxAmountRequired: MAX_TOPUP_MICROS.toString(),
+              payTo: env.PAY_TO_ADDRESS,
+            },
+          ],
+        },
+        402,
+      );
+    }
+
+    const decoded = decodePaymentHeader(paymentHeader);
+    if (!decoded) return c.json({ error: { type: "payment_required", message: "malformed X-PAYMENT header" } }, 402);
+    if (decoded.auth.value > MAX_TOPUP_MICROS) {
+      return c.json({ error: { type: "invalid_request_error", message: `top-up exceeds ${MAX_TOPUP_MICROS} micros` } }, 400);
+    }
+
+    const verified = await verifyPayment(decoded.auth, decoded.signature, chainProfile.eip712Domain, {
+      payTo: getAddress(env.PAY_TO_ADDRESS),
+      minValue: MIN_TOPUP_MICROS,
+    });
+    if (!verified.ok) return c.json({ error: { type: "payment_required", message: verified.reason } }, 402);
+    if (!nonceUnused(db, decoded.auth.nonce)) {
+      return c.json({ error: { type: "payment_required", message: "nonce already used (replay)" } }, 402);
+    }
+
+    const settled = await settleX402Payment(keeperhub, chainProfile, decoded);
+    if (!settled.ok) {
+      releaseNonce(db, decoded.auth.nonce);
+      return c.json({ error: { type: "api_error", message: settled.reason } }, 502);
+    }
+
+    const topupId = newJobId();
+    db.prepare(
+      `INSERT INTO payments_in (id, kind, amount_micros, payer, nonce, settlement_tx, settlement_status, created_at)
+       VALUES (?, 'prepaid_topup', ?, ?, ?, ?, 'settled', ?)`,
+    ).run(topupId, decoded.auth.value.toString(), decoded.auth.from, decoded.auth.nonce, settled.transactionHash, Date.now());
+
+    const apiKey = `ipx_sk_${randomBytes(24).toString("hex")}`;
+    const keyHash = sha256Hex(apiKey);
+    db.prepare(`INSERT INTO consumer_keys (key_hash, balance_micros, created_at) VALUES (?, ?, ?)`).run(
+      keyHash,
+      decoded.auth.value.toString(),
+      Date.now(),
+    );
+
+    // Shown once — only the hash is ever stored.
+    return c.json({ api_key: apiKey, balance_micros: decoded.auth.value.toString(), settlement_tx: settled.transactionHash });
+  });
+
+  app.get("/api/keys/balance", async (c) => {
+    const apiKey = c.req.header("x-api-key");
+    if (!apiKey?.startsWith("ipx_sk_")) return c.json({ error: { type: "invalid_request_error", message: "missing x-api-key" } }, 400);
+    const row = db.prepare(`SELECT balance_micros AS balance FROM consumer_keys WHERE key_hash = ?`).get(sha256Hex(apiKey)) as
+      | { balance: string }
+      | undefined;
+    if (!row) return c.json({ error: { type: "not_found_error", message: "unknown key" } }, 404);
+    return c.json({ balance_micros: row.balance });
   });
 
   app.use("/*", serveStatic({ root: "./public" }));
