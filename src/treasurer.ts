@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type Database from "better-sqlite3";
 import type { Env, ChainProfile } from "./config.js";
-import { pendingPayouts, payoutIdempotencyKey, recordPayoutBroadcast } from "./ledger.js";
+import { pendingPayouts, payoutIdempotencyKey, recordPayoutBroadcast, existingPayoutStatus, finalizePayout } from "./ledger.js";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -183,4 +183,58 @@ export function recordPlannedPayouts(db: Database.Database, plan: TreasurerPayou
       executionId: "pending",
     });
   }
+}
+
+export interface PayoutBatchResult {
+  paid: Array<{ providerId: string; status: string; transactionHash: string | null }>;
+  skipped: Array<{ providerId: string; reason: "verified" | "broadcast" }>;
+  error?: string;
+}
+
+/**
+ * The full payout-batch flow, shared by `idleproxy treasurer` and the
+ * KeeperHub-scheduled /internal/settlement/run hook — one code path,
+ * two triggers (SPEC.md §10 "Settlement hook").
+ */
+export async function runPayoutBatch(
+  env: Env,
+  chainProfile: ChainProfile,
+  db: Database.Database,
+  thresholdMicros: bigint,
+): Promise<PayoutBatchResult> {
+  // Full timestamp, not a date slice — see the comment on `period` at the
+  // call site history: two threshold-triggered batches can land on the
+  // same calendar day, and a date-only period would collide their keys.
+  const period = new Date().toISOString();
+  const fullPlan = buildPayoutPlan(db, chainProfile, thresholdMicros, period);
+  if (fullPlan.length === 0) return { paid: [], skipped: [] };
+
+  const skipped: PayoutBatchResult["skipped"] = [];
+  const plan = fullPlan.filter((p) => {
+    const status = existingPayoutStatus(db, p.idempotencyKey);
+    if (status === "verified" || status === "broadcast") {
+      skipped.push({ providerId: p.providerId, reason: status });
+      return false;
+    }
+    return true;
+  });
+  if (plan.length === 0) return { paid: [], skipped };
+
+  recordPlannedPayouts(db, plan);
+  const result = await runTreasurer(env, plan);
+  if (!result.ok) return { paid: [], skipped, error: result.error };
+  if (!result.parsed) return { paid: [], skipped, error: "could not parse structured summary from agent output" };
+
+  const paid: PayoutBatchResult["paid"] = [];
+  for (const entry of result.parsed) {
+    const p = plan[entry.providerIndex - 1];
+    if (!p) continue;
+    finalizePayout(db, p.idempotencyKey, {
+      transactionLink: entry.transactionHash ? `${chainProfile.explorerBase}/tx/${entry.transactionHash}` : undefined,
+      sponsored: entry.sponsored ?? undefined,
+      verified: entry.status === "completed",
+    });
+    paid.push({ providerId: p.providerId, status: entry.status, transactionHash: entry.transactionHash });
+  }
+  return { paid, skipped };
 }

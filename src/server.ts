@@ -13,7 +13,8 @@ import { creditProvider } from "./ledger.js";
 import { runTier0 } from "./node/tier0.js";
 import { signAttestation, sha256Hex, type AttestationInput } from "./attest.js";
 import { NodeRegistry, newJobId, type ConnectedNode } from "./dispatch.js";
-import { randomBytes } from "node:crypto";
+import { runPayoutBatch } from "./treasurer.js";
+import { randomBytes, createHmac, timingSafeEqual } from "node:crypto";
 
 /** House adapter: what the router itself can serve tonight, in-process,
  * before the WS provider-node registry (dispatch.ts) takes over routing.
@@ -605,6 +606,38 @@ export function buildServer(deps: ServerDeps): Hono {
       }
     }
     return c.json({ ok: true, killSwitch: !!body.enabled });
+  });
+
+  // --- Settlement hook (SPEC.md §10): the KeeperHub Schedule workflow
+  // calls this, HMAC-authed. Thresholding happens in here, not in a
+  // downstream Condition node — the Webhook plugin's "Send Webhook" action
+  // only exposes success/error, with no response body for a Condition to
+  // read (PLAN.md 2.2). Same batch logic as `idleproxy treasurer`, shared
+  // via treasurer.ts's runPayoutBatch. ---
+  const SETTLEMENT_THRESHOLD_MICROS = 1_000_000n; // $1.00, SPEC.md §6
+
+  app.post("/internal/settlement/run", async (c) => {
+    const rawBody = await c.req.text();
+    const signature = c.req.header("x-settlement-signature");
+    const expected = createHmac("sha256", env.SETTLEMENT_HMAC_SECRET).update(rawBody).digest("hex");
+    const sigBuf = Buffer.from(signature ?? "", "hex");
+    const expectedBuf = Buffer.from(expected, "hex");
+    if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) {
+      return c.json({ error: { type: "unauthorized", message: "invalid signature" } }, 401);
+    }
+
+    const result = await runPayoutBatch(env, chainProfile, db, SETTLEMENT_THRESHOLD_MICROS);
+    db.prepare(`INSERT INTO events (kind, payload, created_at) VALUES ('settlement_run', ?, ?)`).run(JSON.stringify(result), Date.now());
+    return c.json(result);
+  });
+
+  // --- Audit (SPEC.md §10): mirrors recent activity for the provider
+  // dashboard and for anyone verifying the rail independently. ---
+  app.get("/api/audit", (c) => {
+    const events = db.prepare(`SELECT id, kind, payload, created_at FROM events ORDER BY id DESC LIMIT 50`).all();
+    const recentJobs = db.prepare(`SELECT id, model, band, status, cost_usd_micros, created_at FROM jobs ORDER BY created_at DESC LIMIT 50`).all();
+    const recentPayouts = db.prepare(`SELECT id, provider_id, amount_micros, status, transaction_link, created_at FROM payouts ORDER BY created_at DESC LIMIT 50`).all();
+    return c.json({ events, jobs: recentJobs, payouts: recentPayouts });
   });
 
   app.use("/*", serveStatic({ root: "./public" }));
