@@ -178,11 +178,13 @@ async function cmdNode(): Promise<void> {
     process.exit(1);
   }
 
+  const tier1 = process.argv.includes("--tier1");
+
   await runNode({
     routerWsUrl: env.ROUTER_WS_URL,
     wallet,
     token,
-    adapter: "claude-code",
+    adapter: tier1 ? "claude-code-tools" : "claude-code",
     models: argValue("--models", "sonnet,opus,haiku").split(","),
     credentialsPath: env.CLAUDE_CREDENTIALS_PATH,
     dailyUsdCap: Number(argValue("--daily-usd-cap", "5")),

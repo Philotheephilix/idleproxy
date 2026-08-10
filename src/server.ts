@@ -21,15 +21,33 @@ import { randomBytes, createHmac, timingSafeEqual } from "node:crypto";
  * SPEC.md §10 lists /v1/models as reflecting "what online nodes can
  * actually serve right now" — this is that surface's floor. */
 const HOUSE_MODELS = ["claude-code/sonnet", "claude-code/opus", "claude-code/haiku"] as const;
-const MAX_JOB_BUDGET_USD = 1.0;
+// The provider's actual generation cost floor is ~$0.05 (SPEC.md §1 V2's
+// measured 7.7k-token preamble), which is *above* Band S's $0.02 consumer
+// price — so the budget cap can't be 1:1 with what the consumer paid, or
+// every Band S job would hit it mid-preamble. Scaled instead: 5x the band
+// price, floored at $0.15 so the cheapest band still reliably clears the
+// measured floor. This is the provider-side generation cap SPEC.md D5
+// means by "the runner caps generation at the band ceiling" — the only
+// lever the CLI exposes is dollar budget, not a token count.
+const BAND_BUDGET_MULTIPLIER = 5;
+const MIN_JOB_BUDGET_USD = 0.15;
+
+function jobBudgetUsd(band: Band): number {
+  return Math.max(MIN_JOB_BUDGET_USD, (Number(band.priceMicros) / 1_000_000) * BAND_BUDGET_MULTIPLIER);
+}
 const HOUSE_PROVIDER_ID = "house";
 
-function modelToClaudeAlias(model: string): string {
-  const bare = model.replace(/^claude-code\//, "");
-  if (!["sonnet", "opus", "haiku"].includes(bare)) {
-    throw new PricingError(`unknown model ${model}`, 400);
-  }
-  return bare;
+/**
+ * Splits "claude-code/sonnet" or "claude-code-tools/sonnet" into the
+ * adapter (used as the dispatch/capacity lookup key, so Tier 0 and Tier 1
+ * nodes serving the same underlying model name never collide in the
+ * registry) and the bare claude alias (the only thing the CLI's --model
+ * flag understands).
+ */
+function parseModelId(model: string): { qualifiedModel: string; bareModel: string } {
+  const match = /^(claude-code|claude-code-tools)\/(sonnet|opus|haiku)$/.exec(model);
+  if (!match) throw new PricingError(`unknown model ${model}`, 400);
+  return { qualifiedModel: model, bareModel: match[2] };
 }
 
 interface AnthropicMessage {
@@ -143,9 +161,10 @@ export function buildServer(deps: ServerDeps): Hono {
       throw e;
     }
 
-    let claudeModel: string;
+    let qualifiedModel: string;
+    let bareModel: string;
     try {
-      claudeModel = modelToClaudeAlias(body.model);
+      ({ qualifiedModel, bareModel } = parseModelId(body.model));
     } catch (e) {
       return c.json({ error: { type: "invalid_request_error", message: (e as Error).message } }, 400);
     }
@@ -213,7 +232,7 @@ export function buildServer(deps: ServerDeps): Hono {
     // --- Dispatch: remote node first (dispatch.ts, one retry, ranked by headroom),
     // house Tier-0 in-process as fallback (SPEC.md §5, §6 "house-node fallback") ---
     const jobId = newJobId();
-    const remote = await registry.dispatch(claudeModel, { jobId, prompt: promptText, model: claudeModel, maxBudgetUsd: MAX_JOB_BUDGET_USD });
+    const remote = await registry.dispatch(qualifiedModel, { jobId, prompt: promptText, model: bareModel, maxBudgetUsd: jobBudgetUsd(band) });
 
     let result: {
       ok: boolean;
@@ -233,12 +252,18 @@ export function buildServer(deps: ServerDeps): Hono {
       servingProviderId = remote.node.providerId;
       remoteAttestation = remote.result.attestation;
       remoteNode = remote.node;
+    } else if (qualifiedModel.startsWith("claude-code-tools/")) {
+      // The house fallback is Tier 0 only — silently downgrading a Tier 1
+      // (tool-enabled) request to tool-free would hand back a capability
+      // the consumer didn't ask for and didn't get. Fail instead.
+      result = { ok: false, error: "no Tier 1 (tool-enabled) node currently online" };
+      servingProviderId = HOUSE_PROVIDER_ID;
     } else {
       result = await runTier0({
         jobId,
         prompt: promptText,
-        model: claudeModel,
-        maxBudgetUsd: MAX_JOB_BUDGET_USD,
+        model: bareModel,
+        maxBudgetUsd: jobBudgetUsd(band),
         credentialsPath,
         timeoutMs: 90_000,
       });
@@ -276,8 +301,8 @@ export function buildServer(deps: ServerDeps): Hono {
     // --- Attest + credit + record ---
     const attestationInput: AttestationInput = {
       requestId: jobId,
-      adapter: "claude-code",
-      modelReported: result.modelReported ?? claudeModel,
+      adapter: remoteNode?.adapter ?? "claude-code", // must match what the node itself signed
+      modelReported: result.modelReported ?? bareModel,
       promptHash: sha256Hex(promptText),
       outputHash: sha256Hex(result.text ?? ""),
       inputTokens: result.inputTokens ?? 0,

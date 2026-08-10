@@ -88,12 +88,27 @@ export class NodeRegistry {
     this.db.prepare(`UPDATE nodes SET last_heartbeat_at = ? WHERE id = ?`).run(Date.now(), nodeId);
   }
 
-  /** Ranks online, capable, available nodes by headroom (highest first). */
-  candidatesFor(model: string): ConnectedNode[] {
+  /**
+   * Ranks online, capable, available nodes by headroom (highest first).
+   * `qualifiedModel` is adapter-prefixed ("claude-code/sonnet" vs
+   * "claude-code-tools/sonnet") so a Tier 0 and a Tier 1 node that both
+   * happen to serve the bare model "sonnet" never collide — `node.models`
+   * and the capacity map stay bare internally (they match what the node
+   * itself and the CLI --model flag use), so the qualification happens
+   * only at the lookup boundary here.
+   */
+  candidatesFor(qualifiedModel: string): ConnectedNode[] {
     return [...this.nodes.values()]
-      .filter((n) => n.models.includes(model))
-      .filter((n) => n.capacity.get(model)?.available !== false)
-      .sort((a, b) => (b.capacity.get(model)?.headroom ?? 1) - (a.capacity.get(model)?.headroom ?? 1));
+      .filter((n) => n.models.some((m) => `${n.adapter}/${m}` === qualifiedModel))
+      .filter((n) => {
+        const bareModel = qualifiedModel.slice(n.adapter.length + 1);
+        return n.capacity.get(bareModel)?.available !== false;
+      })
+      .sort((a, b) => {
+        const bareA = qualifiedModel.slice(a.adapter.length + 1);
+        const bareB = qualifiedModel.slice(b.adapter.length + 1);
+        return (b.capacity.get(bareB)?.headroom ?? 1) - (a.capacity.get(bareA)?.headroom ?? 1);
+      });
   }
 
   resolveJobResult(msg: JobResultMessage): void {

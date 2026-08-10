@@ -3,6 +3,7 @@ import { appendFile, readFile, mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { runTier0 } from "./tier0.js";
+import { runTier1, ensureTier1Infra } from "./tier1.js";
 import { generateNodeKeypair, signAttestation, sha256Hex, type AttestationInput } from "../attest.js";
 
 /**
@@ -15,7 +16,7 @@ export interface NodeConfig {
   routerWsUrl: string;
   wallet: string; // EVM payout address — also today's node identity, see dispatch.ts
   token: string; // issued by POST /api/provider/node-token after disclosure accept
-  adapter: "claude-code";
+  adapter: "claude-code" | "claude-code-tools";
   models: string[];
   credentialsPath: string;
   dailyUsdCap: number;
@@ -118,6 +119,12 @@ export async function runNode(cfg: NodeConfig): Promise<void> {
   const caps = new CapsEnforcer(cfg);
   await caps.load();
 
+  if (cfg.adapter === "claude-code-tools") {
+    console.log("Tier 1: ensuring container infra (network, egress proxy, job image)...");
+    await ensureTier1Infra();
+    console.log("Tier 1 infra ready.");
+  }
+
   function connect(): void {
     const ws = new WebSocket(cfg.routerWsUrl);
 
@@ -163,14 +170,9 @@ export async function runNode(cfg: NodeConfig): Promise<void> {
       }
 
       await caps.beginJob(msg.jobId);
-      const result = await runTier0({
-        jobId: msg.jobId,
-        prompt: msg.prompt,
-        model: msg.model,
-        maxBudgetUsd: msg.maxBudgetUsd,
-        credentialsPath: cfg.credentialsPath,
-        timeoutMs: 90_000,
-      });
+      const jobArgs = { jobId: msg.jobId, prompt: msg.prompt, model: msg.model, maxBudgetUsd: msg.maxBudgetUsd, credentialsPath: cfg.credentialsPath };
+      const result =
+        cfg.adapter === "claude-code-tools" ? await runTier1(jobArgs) : await runTier0({ ...jobArgs, timeoutMs: 90_000 });
       await caps.completeJob(msg.jobId, result.ok, result.costUsd ?? 0);
 
       if (!result.ok) {
