@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { getAddress, verifyMessage, type Address, type Hex } from "viem";
@@ -169,7 +170,7 @@ export function buildServer(deps: ServerDeps): Hono {
   });
 
   app.post("/v1/messages", async (c) => {
-    let body: { model: string; max_tokens: number; messages: AnthropicMessage[] };
+    let body: { model: string; max_tokens: number; messages: AnthropicMessage[]; stream?: boolean };
     try {
       body = await c.req.json();
     } catch {
@@ -394,14 +395,48 @@ export function buildServer(deps: ServerDeps): Hono {
     c.header("x-idleproxy-node", servingProviderId);
     if (settlementTx) c.header("x-idleproxy-settlement-tx", settlementTx);
 
-    return c.json({
-      id: `msg_${jobId}`,
-      type: "message",
-      role: "assistant",
-      model: body.model,
-      content: [{ type: "text", text: result.text }],
-      stop_reason: "end_turn",
-      usage: { input_tokens: result.inputTokens ?? 0, output_tokens: result.outputTokens ?? 0 },
+    const usage = { input_tokens: result.inputTokens ?? 0, output_tokens: result.outputTokens ?? 0 };
+
+    if (!body.stream) {
+      return c.json({
+        id: `msg_${jobId}`,
+        type: "message",
+        role: "assistant",
+        model: body.model,
+        content: [{ type: "text", text: result.text }],
+        stop_reason: "end_turn",
+        usage,
+      });
+    }
+
+    // Settlement is already complete above — the SSE stream only starts
+    // once money has moved, matching the non-streaming path's guarantee
+    // (SPEC.md §6: settle precedes respond). This is NOT token-by-token
+    // generation streaming: the underlying CLI (`--output-format json`)
+    // returns one complete result at the end of the run, not incremental
+    // deltas, so what's chunked here is the already-final text. The
+    // framing is genuine Anthropic Messages SSE — a real streaming client
+    // parses it correctly — but the latency profile is "wait, then
+    // stream," not "stream as it's generated."
+    return streamSSE(c, async (stream) => {
+      await stream.writeSSE({ event: "message_start", data: JSON.stringify({ type: "message_start", message: { id: `msg_${jobId}`, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, usage: { input_tokens: usage.input_tokens, output_tokens: 0 } } }) });
+      await stream.writeSSE({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }) });
+
+      const text = result.text ?? "";
+      const chunkSize = 24;
+      for (let i = 0; i < text.length; i += chunkSize) {
+        await stream.writeSSE({
+          event: "content_block_delta",
+          data: JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: text.slice(i, i + chunkSize) } }),
+        });
+      }
+
+      await stream.writeSSE({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: 0 }) });
+      await stream.writeSSE({
+        event: "message_delta",
+        data: JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: usage.output_tokens } }),
+      });
+      await stream.writeSSE({ event: "message_stop", data: JSON.stringify({ type: "message_stop" }) });
     });
   });
 
