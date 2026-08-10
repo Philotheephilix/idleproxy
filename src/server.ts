@@ -138,6 +138,29 @@ export function buildServer(deps: ServerDeps): Hono {
 
   ensureHouseProvider(db);
 
+  // --- Per-consumer rate limiting (PLAN.md 1.3, disclosed as "Partial" in
+  // SPEC.md §7). Fixed window in memory — fine for a single-process
+  // monolith, resets on restart. Keyed by payer address (x402) or key hash
+  // (prepaid), so one abusive consumer can't flood a node or burn through
+  // KeeperHub's 60/min settlement rate limit (SPEC.md §6) on its own.
+  // Per-node throttling lives in dispatch.ts, next to the rest of a node's
+  // live state. ---
+  const CONSUMER_LIMIT = 20; // requests per window
+  const RATE_WINDOW_MS = 60_000;
+  const consumerWindows = new Map<string, { count: number; resetAt: number }>();
+
+  function checkConsumerRateLimit(key: string): boolean {
+    const now = Date.now();
+    const entry = consumerWindows.get(key);
+    if (!entry || entry.resetAt < now) {
+      consumerWindows.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+      return true;
+    }
+    if (entry.count >= CONSUMER_LIMIT) return false;
+    entry.count++;
+    return true;
+  }
+
   app.get("/v1/models", (c) => {
     const remoteModels = new Set<string>();
     for (const node of registry.list()) for (const m of node.models) remoteModels.add(`${node.adapter}/${m}`);
@@ -182,6 +205,9 @@ export function buildServer(deps: ServerDeps): Hono {
 
     if (apiKey?.startsWith("ipx_sk_")) {
       const keyHash = sha256Hex(apiKey);
+      if (!checkConsumerRateLimit(keyHash)) {
+        return c.json({ error: { type: "rate_limited", message: `at most ${CONSUMER_LIMIT} requests/min per key` } }, 429);
+      }
       const row = db.prepare(`SELECT balance_micros AS balance FROM consumer_keys WHERE key_hash = ?`).get(keyHash) as
         | { balance: string }
         | undefined;
@@ -215,6 +241,9 @@ export function buildServer(deps: ServerDeps): Hono {
       const decoded = decodePaymentHeader(paymentHeader);
       if (!decoded) {
         return c.json({ error: { type: "payment_required", message: "malformed X-PAYMENT header" } }, 402);
+      }
+      if (!checkConsumerRateLimit(decoded.auth.from)) {
+        return c.json({ error: { type: "rate_limited", message: `at most ${CONSUMER_LIMIT} requests/min per payer` } }, 429);
       }
       const verified = await verifyPayment(decoded.auth, decoded.signature, chainProfile.eip712Domain, {
         payTo: getAddress(env.PAY_TO_ADDRESS),
@@ -322,6 +351,22 @@ export function buildServer(deps: ServerDeps): Hono {
           Date.now(),
         );
       }
+
+      // Cost-plausibility cross-check (SPEC.md §7: "an 'Opus' job reporting
+      // $0.0001 is flagged"). A deterrent, like the attestation itself — an
+      // opus-claiming job costing less than the measured ~$0.05 sonnet
+      // preamble floor (SPEC.md §1 V2) is implausible regardless of prompt
+      // size, since the floor is dominated by the fixed system-prompt
+      // preamble, not the model.
+      const claimedOpus = /opus/i.test(attestationInput.modelReported);
+      const costUsd = Number(attestationInput.costUsdMicros) / 1_000_000;
+      if (claimedOpus && costUsd < 0.01) {
+        db.prepare(`INSERT INTO events (kind, payload, created_at) VALUES ('cost_implausible', ?, ?)`).run(
+          JSON.stringify({ jobId, nodeId: remoteNode.nodeId, modelReported: attestationInput.modelReported, costUsd }),
+          Date.now(),
+        );
+      }
+
       attestation = remoteAttestation;
     } else {
       attestation = signAttestation(attestationInput, houseNodeKeypair.privateKeyDer);

@@ -56,11 +56,30 @@ interface PendingJob {
   timeout: NodeJS.Timeout;
 }
 
+// Per-node rate limit (PLAN.md 1.3): protects one node from being flooded
+// across many concurrent consumers at once — the provider's own daily caps
+// bound total volume, not burst rate.
+const NODE_RATE_LIMIT = 30; // jobs per window
+const NODE_RATE_WINDOW_MS = 60_000;
+
 export class NodeRegistry {
   private nodes = new Map<string, ConnectedNode>();
   private pending = new Map<string, PendingJob>();
+  private nodeWindows = new Map<string, { count: number; resetAt: number }>();
 
   constructor(private db: Database.Database) {}
+
+  private underNodeRateLimit(nodeId: string): boolean {
+    const now = Date.now();
+    const entry = this.nodeWindows.get(nodeId);
+    if (!entry || entry.resetAt < now) {
+      this.nodeWindows.set(nodeId, { count: 1, resetAt: now + NODE_RATE_WINDOW_MS });
+      return true;
+    }
+    if (entry.count >= NODE_RATE_LIMIT) return false;
+    entry.count++;
+    return true;
+  }
 
   register(node: ConnectedNode): void {
     this.nodes.set(node.nodeId, node);
@@ -147,8 +166,11 @@ export class NodeRegistry {
    */
   async dispatch(model: string, job: JobRequest, timeoutMs = 90_000): Promise<{ node: ConnectedNode; result: JobResultMessage } | null> {
     const candidates = this.candidatesFor(model);
-    for (let i = 0; i < Math.min(candidates.length, 2); i++) {
-      const node = candidates[i];
+    let attempts = 0;
+    for (const node of candidates) {
+      if (attempts >= 2) break;
+      if (!this.underNodeRateLimit(node.nodeId)) continue; // don't burn an attempt slot on a throttled node
+      attempts++;
       try {
         const result = await this.dispatchToNode(node, job, timeoutMs);
         if (result.ok) return { node, result };
