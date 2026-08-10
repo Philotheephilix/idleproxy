@@ -170,13 +170,22 @@ Directly scored by judging criterion 2, and most of it is configuration rather t
       steps; the treasurer agent calls `execute_workflow` + `get_execution` over MCP instead of raw
       `execute_transfer`. Live tx in `docs/tx-links.md`. Local replay-safety (`existingPayoutStatus`,
       `ON CONFLICT DO NOTHING`) covers what the workflow trigger's missing idempotency key doesn't.
-- [ ] **Scheduled settlement workflow**: Schedule → HTTP POST to `/internal/settlement/run` (HMAC).
-      Do the thresholding **inside the router** — the Webhook plugin's "Send Webhook" action exposes
-      only `success` and `error`, so a downstream Condition has no response body to compare against.
-- [ ] **Reconciliation workflow**: Block trigger (R2's fallback is already the default choice) +
-      `web3/read-contract balanceOf` → Condition comparing against the ledger → Discord alert on
-      drift.
-- [ ] `GET /api/audit` mirroring KeeperHub `get_execution` records into the dashboard.
+- [x] **Scheduled settlement workflow — descoped, with a confirmed reason, not abandoned.** Tested
+      live: `webhook/send-webhook`, the system `HTTP Request` action, and `code/run-code` **all**
+      return `upgrade_required` / `requiredPlan: "pro"` on this org's tier — every outbound-HTTP-
+      capable KeeperHub action is paid-plan gated, so a KeeperHub Schedule trigger genuinely cannot
+      call `/internal/settlement/run` from this account. The endpoint itself is built and HMAC/
+      static-token-authed either way; it's driven by `idleproxy treasurer` (or an external cron)
+      instead of a native KeeperHub Schedule node. `SETTLEMENT_THRESHOLD_MICROS` thresholding still
+      lives in the router, which was the right call regardless of trigger source.
+- [x] **Solvency Watchdog workflow, done Day 0 evening** (SPEC.md §10): Block trigger (900-block
+      cadence on 84532) → `Check Treasury Balance` → `Read USDC Decimals` → Condition (below the $1
+      safety floor). Verified live: real balance ($0.207001), real decimals (6), condition correctly
+      `true`. The alert surface is KeeperHub's own Executions API, pulled into `GET /api/audit` as
+      `solvencyWatchdog` — not a Discord/webhook push, since that action is the same paid-plan gate
+      above. Workflow id in `KEEPERHUB_RECONCILIATION_WORKFLOW_ID`.
+- [x] `GET /api/audit` mirroring KeeperHub workflow executions (`solvencyWatchdog`) plus local
+      events/jobs/payouts into the dashboard.
 - [ ] **Validate every workflow** with `validate_workflow` *and* one manual run. When building via
       API/MCP use the canonical keys `abiFunction` and `functionArgs` — `functionName` and `args`
       save cleanly and then fail at execution with a missing-`abiFunction` error.

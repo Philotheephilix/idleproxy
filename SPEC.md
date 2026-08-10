@@ -386,11 +386,19 @@ Each has a decision point on the timeline in `PLAN.md`, not an open-ended "we'll
 
 `/api/execute/contract-call` (x402 settlement, direct) · `/api/execute/{id}/status` (settlement
 polling, receipts) · **Payout workflow** (Webhook trigger → `web3/check-token-balance` → `Condition`
-solvency gate → `web3/transfer-token`, live: `docs/tx-links.md`) · Gas Station sponsorship · MCP
-server with `kh_` header auth — the treasurer's hands, calling `execute_workflow` + `get_execution`,
-not raw Direct Execution · Schedule workflow → settlement hook · Block-trigger + `read-contract`
-reconciliation workflow with a Condition node and a Discord alert on drift · `kh` CLI
-(`kh workflow run … --wait`, `kh run logs`) · `get_execution` audit mirroring.
+solvency gate → `web3/transfer-token`, live: `docs/tx-links.md`) · **Solvency Watchdog workflow**
+(Block trigger, 900-block cadence → `web3/check-token-balance` → `web3/read-contract` → `Condition`
+below-floor check, live: `docs/tx-links.md`) · `GET /workflows/{id}/executions` — pulled into
+`GET /api/audit` as the reconciliation alert surface, since outbound-HTTP actions are paid-plan gated
+on this tier (below) · Gas Station sponsorship · MCP server with `kh_` header auth — the treasurer's
+hands, calling `execute_workflow` + `get_execution`, not raw Direct Execution.
+
+**Confirmed, not assumed: `webhook/send-webhook`, the system `HTTP Request` action, and
+`code/run-code` all require a paid plan** — every outbound-HTTP-capable KeeperHub action returns
+`upgrade_required` on this org's tier (tested live, all three, individually). This is why the
+Schedule → webhook settlement trigger and the Discord-alert reconciliation design in v3.0's original
+plan are dropped in favor of `GET /api/audit` reading execution history directly: it's the honest
+adaptation to a real platform constraint, not an unbuilt feature.
 
 ---
 

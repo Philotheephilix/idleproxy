@@ -20,6 +20,8 @@ const envSchema = z.object({
   // transfer natively in KeeperHub (Check Treasury Balance -> Solvency
   // Gate -> Pay Provider). See docs/tx-links.md for the live proof run.
   KEEPERHUB_PAYOUT_WORKFLOW_ID: z.string().default(""),
+  // Block-triggered treasury solvency watchdog — see docs/tx-links.md.
+  KEEPERHUB_RECONCILIATION_WORKFLOW_ID: z.string().default(""),
 
   NODE_TOKEN: z.string().default(""),
   ROUTER_WS_URL: z.string().default("ws://localhost:8787/node"),

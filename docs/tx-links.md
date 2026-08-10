@@ -25,6 +25,39 @@ SPEC §9 R1 is dead weight — not built.
 |---|---|---|---|
 | 2026-08-10 | `npx idleproxy facilitator-demo` — throwaway wallet (freshly generated, never funded), zero-value EIP-3009 authorization settled through KeeperHub | [`0x534724b2...780e18e43217594`](https://sepolia.basescan.org/tx/0x534724b246bf9fd4fffd330fde5ef5df7cd3ad7b2c86a0d3a780e18e43217594) | Worked on the first run, zero funding, zero setup beyond an API key. `sponsored: true`, receipt `status: 0x1`. Tutorial: `docs/bounty/x402-facilitator.md` |
 
+## Solvency Watchdog — a second, independent KeeperHub workflow
+
+Block trigger (900-block cadence, 84532) → `Check Treasury Balance` (`web3/check-token-balance`) →
+`Read USDC Decimals` (`web3/read-contract`, generic ABI call) → `Below Safety Floor` (Condition,
+balance < $1). Workflow id: `bl4hcmn2vy3dvpmkx7ydc`.
+
+Manually executed for real (execution `jbmk6iudycd6ew6zfsxvu`) — every node logged real on-chain
+data, not placeholders:
+
+| Node | Output |
+|---|---|
+| Check Treasury Balance | `balance: "0.207001"`, `symbol: "USDC"` |
+| Read USDC Decimals | `result: "6"` |
+| Below Safety Floor | `condition: true` (correctly — the treasury really is under $1 after this session's test payouts) |
+
+**A real platform constraint, found by testing rather than assumed:** the original design had this
+workflow push a Discord/webhook alert on drift. Tested directly — `webhook/send-webhook`, the system
+`HTTP Request` action, and `code/run-code` **all three** return
+`{"error":"This workflow uses features that require a paid plan.","code":"upgrade_required","requiredPlan":"pro"}`
+on this org's tier. Every outbound-HTTP-capable action in KeeperHub is paid-plan gated — there is no
+free-tier way for a workflow to call out. Adapted rather than faked: `GET /api/audit` now pulls this
+workflow's execution history directly via `GET /workflows/{id}/executions` and surfaces
+`solvencyWatchdog` in the dashboard — KeeperHub's own Executions API becomes the alert surface. The
+same constraint is why the "Schedule trigger → HTTP POST to `/internal/settlement/run`" design was
+dropped: a KeeperHub Schedule workflow cannot reach an external endpoint at all on this tier. The
+endpoint itself still exists and is still HMAC/token-authed; it's driven by `idleproxy treasurer` (or
+an external cron) instead.
+
+A real ngrok tunnel (`https://6cb8-161-118-166-4.ngrok-free.app`) was stood up specifically to test
+whether a KeeperHub-side outbound call could reach the local router at all — confirmed reachable
+(`curl` through the tunnel hit `/v1/models` and got a real 200) before the paid-plan gate was found
+on the KeeperHub side. The reachability wasn't the blocker; the account tier was.
+
 ## Payout, upgraded to a KeeperHub workflow
 
 Money movement moved out of application code and into a KeeperHub workflow — `Payout Request`

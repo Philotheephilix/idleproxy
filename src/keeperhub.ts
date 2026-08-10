@@ -183,6 +183,19 @@ export class KeeperHubClient {
     return { status: json, pollIntervalHint: Number.isFinite(hint) ? hint : 3 };
   }
 
+  /** Recent runs of a workflow — used to surface the Solvency Watchdog's
+   * Condition results as the reconciliation "alert" (SPEC.md §10), since
+   * the Send Webhook and Code actions are gated behind a paid plan on this
+   * org tier and can't broadcast an alert themselves. */
+  async listWorkflowExecutions(workflowId: string, limit = 10): Promise<any[]> {
+    const res = await fetch(`${this.base}/workflows/${workflowId}/executions`, {
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    if (res.status !== 200) return [];
+    const all = (await res.json()) as any[];
+    return all.slice(0, limit);
+  }
+
   /** Poll to a terminal state, honoring the server's hinted interval each round. */
   async pollToTerminal(executionId: string, maxWaitMs = 120_000): Promise<ExecutionStatus> {
     const deadline = Date.now() + maxWaitMs;

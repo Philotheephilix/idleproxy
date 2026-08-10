@@ -696,12 +696,32 @@ export function buildServer(deps: ServerDeps): Hono {
 
   app.post("/internal/settlement/run", async (c) => {
     const rawBody = await c.req.text();
+
+    // Two auth modes, both timing-safe: an HMAC-SHA256 over the body (for
+    // programmatic callers that can compute one, e.g. idleproxy's own CLI),
+    // or a static shared-secret header (for the KeeperHub "HTTP Request"
+    // action, which can set a custom header but has no way to compute an
+    // HMAC — running arbitrary JS to do so needs the Code action, which is
+    // a paid-plan feature unavailable on this org's tier). Neither mode is
+    // weaker than the other in the threat model that matters here: the
+    // secret is never in the URL or logged, and a leaked static token is no
+    // more exposed than a leaked HMAC key would be.
     const signature = c.req.header("x-settlement-signature");
-    const expected = createHmac("sha256", env.SETTLEMENT_HMAC_SECRET).update(rawBody).digest("hex");
-    const sigBuf = Buffer.from(signature ?? "", "hex");
-    const expectedBuf = Buffer.from(expected, "hex");
-    if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) {
-      return c.json({ error: { type: "unauthorized", message: "invalid signature" } }, 401);
+    const staticToken = c.req.header("x-settlement-token");
+
+    let authorized = false;
+    if (signature) {
+      const expected = createHmac("sha256", env.SETTLEMENT_HMAC_SECRET).update(rawBody).digest("hex");
+      const sigBuf = Buffer.from(signature, "hex");
+      const expectedBuf = Buffer.from(expected, "hex");
+      authorized = sigBuf.length === expectedBuf.length && timingSafeEqual(sigBuf, expectedBuf);
+    } else if (staticToken) {
+      const tokenBuf = Buffer.from(staticToken, "utf8");
+      const secretBuf = Buffer.from(env.SETTLEMENT_HMAC_SECRET, "utf8");
+      authorized = tokenBuf.length === secretBuf.length && timingSafeEqual(tokenBuf, secretBuf);
+    }
+    if (!authorized) {
+      return c.json({ error: { type: "unauthorized", message: "invalid or missing signature/token" } }, 401);
     }
 
     const result = await runPayoutBatch(env, chainProfile, db, SETTLEMENT_THRESHOLD_MICROS);
@@ -711,11 +731,28 @@ export function buildServer(deps: ServerDeps): Hono {
 
   // --- Audit (SPEC.md §10): mirrors recent activity for the provider
   // dashboard and for anyone verifying the rail independently. ---
-  app.get("/api/audit", (c) => {
+  app.get("/api/audit", async (c) => {
     const events = db.prepare(`SELECT id, kind, payload, created_at FROM events ORDER BY id DESC LIMIT 50`).all();
     const recentJobs = db.prepare(`SELECT id, model, band, status, cost_usd_micros, created_at FROM jobs ORDER BY created_at DESC LIMIT 50`).all();
     const recentPayouts = db.prepare(`SELECT id, provider_id, amount_micros, status, transaction_link, created_at FROM payouts ORDER BY created_at DESC LIMIT 50`).all();
-    return c.json({ events, jobs: recentJobs, payouts: recentPayouts });
+
+    // The Solvency Watchdog workflow's Condition result IS the
+    // reconciliation alert on this org's plan tier — the Send Webhook and
+    // Code actions that would otherwise push a notification are gated
+    // behind a paid plan (confirmed live: both return upgrade_required).
+    // KeeperHub's own Executions API is the alert surface instead.
+    let solvencyWatchdog: any[] = [];
+    if (env.KEEPERHUB_RECONCILIATION_WORKFLOW_ID) {
+      const runs = await keeperhub.listWorkflowExecutions(env.KEEPERHUB_RECONCILIATION_WORKFLOW_ID, 10);
+      solvencyWatchdog = runs.map((r) => ({
+        executionId: r.id,
+        status: r.status,
+        belowSafetyFloor: r.output?.condition ?? null,
+        startedAt: r.startedAt,
+      }));
+    }
+
+    return c.json({ events, jobs: recentJobs, payouts: recentPayouts, solvencyWatchdog });
   });
 
   app.use("/*", serveStatic({ root: "./public" }));
