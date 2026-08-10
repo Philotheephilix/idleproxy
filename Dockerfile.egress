@@ -1,0 +1,5 @@
+# Tier-1 egress proxy — the only host a job container can reach on
+# `ipx-jobnet`. See egress-proxy.conf for the allowlist.
+FROM ubuntu/squid:latest
+COPY egress-proxy.conf /etc/squid/squid.conf
+EXPOSE 3128

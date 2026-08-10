@@ -96,7 +96,7 @@ idleproxy/
 ├── tsconfig.json
 ├── .env.example
 ├── Dockerfile.job          Tier-1 job image
-├── egress-proxy.conf       nginx CONNECT allowlist for the Tier-1 network
+├── egress-proxy.conf       squid CONNECT allowlist for the Tier-1 network
 ├── README.md  SPEC.md  PLAN.md
 ├── public/                 UI — static, served by the router, no bundler
 │   ├── index.html
@@ -184,19 +184,39 @@ Same binary, tools **enabled**, always inside a container:
 ```
 docker run --rm --network ipx-jobnet --user 10001:10001
   --memory 2g --pids-limit 256 --cpus 1.5 --read-only
-  --tmpfs /work:size=1g --tmpfs /home/job:size=256m
+  --tmpfs /work:size=1g,uid=10001,gid=10001,mode=0700
+  --tmpfs /home/job:size=256m,uid=10001,gid=10001,mode=0700
+  --tmpfs /home/job/.claude:size=64m,uid=10001,gid=10001,mode=0700
+  --tmpfs /tmp:size=256m,uid=10001,gid=10001,mode=0700
   -e HOME=/home/job -e HTTPS_PROXY=http://ipx-egress:3128
-  -e CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
+  -e CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0
   --mount type=bind,src=<jobdir>/creds.json,dst=/home/job/.claude/.credentials.json,ro
   idleproxy-job:latest  claude -p "<prompt>" --model … --output-format json
-    --permission-mode bypassPermissions --strict-mcp-config
+    --allowed-tools Bash,Read,Edit,Write,Glob,Grep --strict-mcp-config
 ```
 
 `ipx-jobnet` is `docker network create --internal` — containers on it have **no route to the
-internet**. The only reachable host is `ipx-egress`, an nginx forward proxy dual-homed onto the
+internet**. The only reachable host is `ipx-egress`, a squid forward proxy dual-homed onto the
 bridge network whose config (`egress-proxy.conf`) permits `CONNECT` to `api.anthropic.com:443` and
 nothing else. No host bind mounts except the read-only credential copy. Wall clock 180 s, killed on
 breach.
+
+**Measured, not assumed** (six real bugs found running this for the first time): `bubblewrap` and
+`socat` must be installed in the image or Claude Code's own command sandbox refuses to start;
+`/tmp` needs its own tmpfs or the CLI can't create scratch files; every tmpfs needs explicit
+`uid=10001,gid=10001` or it mounts root-owned and the job user can't write to it — and `.claude`
+specifically needs its **own** tmpfs mount rather than being left to auto-create under `/home/job`,
+because Docker creates a bind mount's missing parent directories as root regardless of the
+enclosing tmpfs's declared owner; `--permission-mode bypassPermissions` gets silently forced back to
+default under the CLI's own hardening once subprocess scrubbing is engaged, so tool access has to be
+an explicit `--allowed-tools` list instead; the credential copy must be `chmod 644` since the source
+is `0600` and the container runs as a different uid than whatever copied it; and
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is **off**, not on — it nests a second bubblewrap user namespace
+inside the container's own, which Docker's default seccomp profile refuses without extra host
+capabilities this design deliberately doesn't grant, and it protects against a threat (subprocesses
+inheriting sensitive env vars) that doesn't apply here, since the credential is a mounted file, never
+an env var. The container boundary — fresh per job, no host bind mounts, egress locked, read-only
+root — is what's actually load-bearing.
 
 Capacity is reported separately per adapter, so a provider can enable Tier 0 only. Tier 1 is
 **opt-in at onboarding with its own checkbox**, because it is a materially larger exposure.
