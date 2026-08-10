@@ -4,7 +4,7 @@ import { KeeperHubClient } from "./keeperhub.js";
 import { buildServer, startServer } from "./server.js";
 import { generateNodeKeypair } from "./attest.js";
 import { buildPayoutPlan, recordPlannedPayouts, runTreasurer } from "./treasurer.js";
-import { finalizePayout } from "./ledger.js";
+import { finalizePayout, existingPayoutStatus } from "./ledger.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
@@ -54,14 +54,40 @@ async function cmdTreasurer(): Promise<void> {
   const env = loadEnv();
   const chainProfile = await resolveChainProfile(env);
   const db = openDb(env.DATABASE_PATH);
-  const period = new Date().toISOString().slice(0, 10);
+  // Full timestamp, not a date slice: SPEC.md §6 runs the treasurer on a
+  // threshold as well as daily, so two batches can legitimately happen on
+  // the same calendar day. A date-only period would give them the same
+  // idempotency key and the second batch would read as an already-paid
+  // replay of the first.
+  const period = new Date().toISOString();
 
   const thresholdArg = process.argv.find((a) => a.startsWith("--threshold="));
   const thresholdMicros = thresholdArg ? BigInt(Math.round(Number(thresholdArg.split("=")[1]) * 1_000_000)) : 0n;
 
-  const plan = buildPayoutPlan(db, chainProfile, thresholdMicros, period);
-  if (plan.length === 0) {
+  const fullPlan = buildPayoutPlan(db, chainProfile, thresholdMicros, period);
+  if (fullPlan.length === 0) {
     console.log("no pending payouts at or above threshold");
+    return;
+  }
+
+  // Same provider + period + amount already paid (or in flight) — skip, don't re-trigger the
+  // workflow. The workflow trigger itself carries no idempotency key, so this local check is what
+  // stops a retried run from double-paying (see ledger.existingPayoutStatus).
+  const plan = fullPlan.filter((p) => {
+    const status = existingPayoutStatus(db, p.idempotencyKey);
+    if (status === "verified") {
+      console.log(`skip ${p.providerId}: already paid this period (key ${p.idempotencyKey.slice(0, 12)}...)`);
+      return false;
+    }
+    if (status === "broadcast") {
+      console.log(`skip ${p.providerId}: payout already in flight this period (key ${p.idempotencyKey.slice(0, 12)}...)`);
+      return false;
+    }
+    return true;
+  });
+
+  if (plan.length === 0) {
+    console.log("nothing new to pay out");
     return;
   }
 
@@ -71,7 +97,7 @@ async function cmdTreasurer(): Promise<void> {
   recordPlannedPayouts(db, plan);
 
   console.log("spawning treasurer agent (Claude Code + KeeperHub MCP)...");
-  const result = await runTreasurer(env, chainProfile, plan);
+  const result = await runTreasurer(env, plan);
 
   if (!result.ok) {
     console.error("treasurer agent failed:", result.error);

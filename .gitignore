@@ -8,3 +8,4 @@ dist/
 usage.jsonl
 *.log
 tmp/
+*.key

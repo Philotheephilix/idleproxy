@@ -63,29 +63,36 @@ function mcpConfig(env: Env): string {
   });
 }
 
-function buildPrompt(plan: TreasurerPayoutPlan[], chainProfile: ChainProfile): string {
+/**
+ * The payout's business logic — solvency check, then transfer — lives in a
+ * KeeperHub workflow (Webhook trigger -> Check Treasury Balance ->
+ * Solvency Gate Condition -> Pay Provider), not in this file or in a raw
+ * execute_transfer call. The agent's job is to hold the MCP session and
+ * invoke that workflow once per payout with the exact numbers computed
+ * above, then confirm the result — so the money movement is KeeperHub-
+ * native and the agent-executed part is real. See docs/tx-links.md for the
+ * live proof run and the workflow id in KEEPERHUB_PAYOUT_WORKFLOW_ID.
+ */
+function buildPrompt(plan: TreasurerPayoutPlan[], workflowId: string): string {
   const rows = plan
-    .map(
-      (p, i) =>
-        `${i + 1}. to_address="${p.wallet}" amount="${p.amountUsdcDecimal}" idempotency_key="${p.idempotencyKey}"`,
-    )
+    .map((p, i) => `${i + 1}. to="${p.wallet}" amount="${p.amountUsdcDecimal}" providerId="${p.providerId}"`)
     .join("\n");
 
-  return `You are the IdleProxy treasurer. Execute exactly the following USDC payouts on chain_id ` +
-    `"${chainProfile.chainId}" using token_address "${chainProfile.usdcAddress}", via the KeeperHub MCP tools. ` +
-    `Do not compute, round, or otherwise change any amount, address, or idempotency_key — use the values given verbatim.\n\n` +
+  return `You are the IdleProxy treasurer. Pay out exactly the following providers via the KeeperHub ` +
+    `payout workflow, id "${workflowId}". Do not compute, round, or otherwise change any amount or ` +
+    `address — use the values given verbatim. The workflow itself checks treasury solvency and performs ` +
+    `the transfer; your job is to invoke it correctly and confirm the outcome.\n\n` +
     `Payouts:\n${rows}\n\n` +
     `For each payout, in order:\n` +
-    `1. Call execute_transfer with chain_id, to_address, token_address, amount, and simulate=true. ` +
-    `Stop and report failure for this payout if wouldRevert is true.\n` +
-    `2. Call execute_transfer again with the same arguments, simulate omitted, and idempotency_key set. ` +
-    `A 409 idempotency_conflict or idempotency_in_progress is an answer, not an error — treat it as `+
-    `"already in flight" and proceed to polling.\n` +
-    `3. Call get_direct_execution_status with the executionId and poll (respecting any backoff hint) until ` +
-    `status is completed or failed.\n\n` +
-    `When all payouts are resolved, end your final message with a fenced json code block containing an array, ` +
-    `one object per payout, each with exactly these fields: providerIndex (the 1-based number above), status ` +
-    `("completed" or "failed"), executionId, transactionHash (or null), sponsored (boolean or null).`;
+    `1. Call execute_workflow with workflowId "${workflowId}" and input ` +
+    `{"body": {"to": <to>, "amount": <amount>, "providerId": <providerId>}}.\n` +
+    `2. Call get_execution with the returned executionId and poll until status is a terminal state ` +
+    `(success, error, or cancelled). Read the transactionHash and whether the transfer was sponsored from ` +
+    `the execution's transactionHashes/output.\n\n` +
+    `When all payouts are resolved, end your final message with a fenced json code block containing an ` +
+    `array, one object per payout, each with exactly these fields: providerIndex (the 1-based number ` +
+    `above), status ("completed" if the workflow execution succeeded, else "failed"), executionId, ` +
+    `transactionHash (or null), sponsored (boolean or null).`;
 }
 
 export interface TreasurerRunResult {
@@ -102,14 +109,16 @@ function extractJsonBlock(text: string): string | null {
 
 export async function runTreasurer(
   env: Env,
-  chainProfile: ChainProfile,
   plan: TreasurerPayoutPlan[],
   timeoutMs = 180_000,
 ): Promise<TreasurerRunResult> {
   if (plan.length === 0) return { ok: true, parsed: [] };
+  if (!env.KEEPERHUB_PAYOUT_WORKFLOW_ID) {
+    return { ok: false, error: "KEEPERHUB_PAYOUT_WORKFLOW_ID not configured" };
+  }
 
-  const prompt = buildPrompt(plan, chainProfile);
-  const allowedTools = "mcp__keeperhub__execute_transfer,mcp__keeperhub__get_direct_execution_status";
+  const prompt = buildPrompt(plan, env.KEEPERHUB_PAYOUT_WORKFLOW_ID);
+  const allowedTools = "mcp__keeperhub__execute_workflow,mcp__keeperhub__get_execution";
 
   const args = [
     "-p",

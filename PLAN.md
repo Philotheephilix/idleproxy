@@ -165,9 +165,11 @@ no config file edited by hand.
 
 Directly scored by judging criterion 2, and most of it is configuration rather than code.
 
-- [ ] Harden the treasurer: `check-and-execute` solvency gate before the batch; all three idempotency
-      outcomes handled (SPEC §6); deterministic key; canonicalized bodies (lowercase addresses,
-      canonical amount strings) because the key is deterministic.
+- [x] **Payout moved into a KeeperHub workflow, done Day 0 evening.** Solvency check (`Check Treasury
+      Balance` → `Solvency Gate` Condition) and the transfer (`Pay Provider`) are native workflow
+      steps; the treasurer agent calls `execute_workflow` + `get_execution` over MCP instead of raw
+      `execute_transfer`. Live tx in `docs/tx-links.md`. Local replay-safety (`existingPayoutStatus`,
+      `ON CONFLICT DO NOTHING`) covers what the workflow trigger's missing idempotency key doesn't.
 - [ ] **Scheduled settlement workflow**: Schedule → HTTP POST to `/internal/settlement/run` (HMAC).
       Do the thresholding **inside the router** — the Webhook plugin's "Send Webhook" action exposes
       only `success` and `error`, so a downstream Condition has no response body to compare against.

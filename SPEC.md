@@ -254,18 +254,23 @@ Set against the measured 7.7k-token floor (V2), not against a bare API call.
 ### Outbound
 
 Ledger credits the provider 80% (20% protocol fee). At ≥ $1.00 accrued, or on the scheduled run, the
-treasurer agent: reads pending balances → `check-and-execute` with a `balanceOf(treasury)` solvency
-condition ≥ batch total → one `execute_transfer` per provider with a deterministic idempotency key
-`sha256("payout|{providerId}|{period}|{chainId}|{addr}|{amount}|{token}")` → polls to
-`receipts[].verified` → writes `transactionLink` and `sponsored` into `payouts`.
+treasurer agent runs the payout — but the solvency check and the transfer are **KeeperHub workflow
+steps, not a REST call our code makes**. A workflow (`Payout Request` Webhook trigger → `Check
+Treasury Balance` → `Solvency Gate` Condition → `Pay Provider` transfer, true branch only) owns that
+logic natively; the agent's job is to invoke it correctly and confirm the result, via MCP
+`execute_workflow(workflowId, {body: {to, amount, providerId}})` then `get_execution` polled to a
+terminal state. Verified live on Base Sepolia — see `docs/tx-links.md`.
 
-Idempotency outcomes are all handled as answers, not errors: **409 `idempotency_conflict` carries
-`originalExecutionId`** (nullable — when null, do not rotate the key, poll by provider+period
-instead); `idempotency_in_progress` means retry the same key after backoff; a body carrying
-`idempotentReplay: true` is a replay and must not be counted as a fresh payout.
+The workflow trigger itself carries no idempotency key (unlike the Direct Execution endpoints), so
+replay-safety for the payout is a local concern: `payoutIdempotencyKey` —
+`sha256("payout|{providerId}|{period}|{chainId}|{addr}|{amount}|{token}")` with `period` a full
+timestamp per treasurer invocation, not a date slice, because the threshold trigger can fire more
+than once a day — and `ledger.existingPayoutStatus` skips re-invoking the workflow for a key already
+`verified` or `broadcast`. `recordPayoutBroadcast` is an `ON CONFLICT DO NOTHING` upsert so a retry
+is a no-op instead of a crash.
 
-MCP tool arguments are snake_case (`chain_id`, `token_address`, `idempotency_key`); REST is
-camelCase. The treasurer prompt uses snake_case only.
+MCP tool arguments are snake_case; REST is camelCase. `execute_workflow`'s `input` field is
+camelCase JSON regardless (it is the workflow's own input shape, not a Direct Execution call).
 
 ### Cost
 
@@ -359,11 +364,13 @@ Each has a decision point on the timeline in `PLAN.md`, not an open-ended "we'll
 
 ### KeeperHub surfaces used
 
-`/api/execute/contract-call` (settlement) · `/api/execute/transfer` (payouts) · `/api/execute/{id}/status`
-(polling, receipts) · Gas Station sponsorship · MCP server with `kh_` header auth (the treasurer's
-hands) · Schedule workflow → settlement hook · Block-trigger + `read-contract` reconciliation workflow
-with a Condition node and a Discord alert on drift · `kh` CLI (`kh workflow run … --wait`, `kh run logs`)
-· `get_execution` audit mirroring.
+`/api/execute/contract-call` (x402 settlement, direct) · `/api/execute/{id}/status` (settlement
+polling, receipts) · **Payout workflow** (Webhook trigger → `web3/check-token-balance` → `Condition`
+solvency gate → `web3/transfer-token`, live: `docs/tx-links.md`) · Gas Station sponsorship · MCP
+server with `kh_` header auth — the treasurer's hands, calling `execute_workflow` + `get_execution`,
+not raw Direct Execution · Schedule workflow → settlement hook · Block-trigger + `read-contract`
+reconciliation workflow with a Condition node and a Discord alert on drift · `kh` CLI
+(`kh workflow run … --wait`, `kh run logs`) · `get_execution` audit mirroring.
 
 ---
 

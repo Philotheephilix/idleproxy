@@ -63,6 +63,19 @@ export function payoutIdempotencyKey(opts: {
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
+/** Existing payout status for an idempotency key, or null if never recorded. Callers use this to
+ * skip re-triggering work that already landed — the KeeperHub workflow trigger has no idempotency
+ * key of its own, so this local check is what stops a retried "same period, same amount" payout
+ * from double-paying a provider. */
+export function existingPayoutStatus(db: Database.Database, idempotencyKey: string): string | null {
+  const row = db.prepare(`SELECT status FROM payouts WHERE idempotency_key = ?`).get(idempotencyKey) as
+    | { status: string }
+    | undefined;
+  return row?.status ?? null;
+}
+
+/** Returns false (no-op) if this idempotency key was already recorded — a retry of the same
+ * provider+period+amount, not a new payout. */
 export function recordPayoutBroadcast(
   db: Database.Database,
   row: {
@@ -73,11 +86,15 @@ export function recordPayoutBroadcast(
     idempotencyKey: string;
     executionId: string;
   },
-): void {
-  db.prepare(
-    `INSERT INTO payouts (id, provider_id, period, amount_micros, idempotency_key, execution_id, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'broadcast', ?)`,
-  ).run(row.id, row.providerId, row.period, row.amountMicros.toString(), row.idempotencyKey, row.executionId, Date.now());
+): boolean {
+  const result = db
+    .prepare(
+      `INSERT INTO payouts (id, provider_id, period, amount_micros, idempotency_key, execution_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'broadcast', ?)
+       ON CONFLICT(idempotency_key) DO NOTHING`,
+    )
+    .run(row.id, row.providerId, row.period, row.amountMicros.toString(), row.idempotencyKey, row.executionId, Date.now());
+  return result.changes > 0;
 }
 
 export function finalizePayout(

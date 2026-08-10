@@ -17,5 +17,29 @@ SPEC §9 R1 is dead weight — not built.
 |---|---|---|---|
 | 2026-08-10 | **First real paid inference call.** `POST /v1/messages` (band S, $0.02) → 402 → consumer signs EIP-3009 → router verifies + dedupes nonce → dispatches to Tier-0 Claude Code → settles via KeeperHub `contract-call` → responds | [`0xf38d212d...ae6a38fe5d9f2564`](https://sepolia.basescan.org/tx/0xf38d212d393ca3d05c35a1c90ce7b8b0b66430b6728d3890ae6a38fe5d9f2564) | End to end in 7.68s. On-chain `Transfer` event confirms exactly 20000 atomic units (`$0.02`) moved consumer → org wallet, `status: 0x1`. Provider (house) credited $0.016 (80%). Job, payment, and nonce rows all recorded correctly in sqlite. **M1 exit gate met on the money-in half.** |
 
-| 2026-08-10 | **First agent-executed payout.** `idleproxy treasurer` spawns Claude Code with the KeeperHub MCP server attached; the agent itself calls `execute_transfer` (simulate → broadcast → poll) to pay the house provider its accrued $0.016 | [`0x5abbf02f...c65b74313f58`](https://sepolia.basescan.org/tx/0x5abbf02ff9b55a54d15abe7216416d52d4756e3b3c23a349e454c65b74313f58) | `sponsored: true`. Consumer/provider test wallet balance moved by exactly 16000 atomic units (`$0.016`), confirmed independently via `balanceOf` before/after and the tx receipt (`status: 0x1`). **M1 exit gate fully met — both halves, real funds, real chain.** |
+| 2026-08-10 | **First agent-executed payout** (v1, raw `execute_transfer`). `idleproxy treasurer` spawns Claude Code with the KeeperHub MCP server attached; the agent itself calls `execute_transfer` (simulate → broadcast → poll) to pay the house provider its accrued $0.016 | [`0x5abbf02f...c65b74313f58`](https://sepolia.basescan.org/tx/0x5abbf02ff9b55a54d15abe7216416d52d4756e3b3c23a349e454c65b74313f58) | `sponsored: true`. Consumer/provider test wallet balance moved by exactly 16000 atomic units (`$0.016`), confirmed independently via `balanceOf` before/after and the tx receipt (`status: 0x1`). **M1 exit gate fully met — both halves, real funds, real chain.** Superseded by the workflow-native path below |
+
+## Payout, upgraded to a KeeperHub workflow
+
+Money movement moved out of application code and into a KeeperHub workflow — `Payout Request`
+(Webhook trigger) → `Check Treasury Balance` (`web3/check-token-balance`) → `Solvency Gate`
+(Condition, true branch only) → `Pay Provider` (`web3/transfer-token`). The solvency check and the
+transfer are now native KeeperHub steps, not a REST call our code makes; `treasurer.ts` drives the
+agent to call `execute_workflow` + `get_execution` over MCP instead of `execute_transfer` directly.
+Workflow id: `9ujfl46sgqte26n2mho7k`.
+
+| Date (UTC) | What | Tx | Notes |
+|---|---|---|---|
+| 2026-08-10 | Manual-execute smoke test of the payout workflow (0.001 USDC, bypassing the agent to validate the workflow itself) | [`0x2f7de5fd...6e9cbc3c02c1f6`](https://sepolia.basescan.org/tx/0x2f7de5fd5f57acff1fcb5883257d3ba245b8f3e8042a519fa76e9cbc3c02c1f6) | `sponsored: true`, `receiptStatus: success`. Confirms the Condition's balance comparison and the transfer step both resolve correctly from webhook-shaped input |
+| 2026-08-10 | **Agent-driven payout through the workflow.** `idleproxy treasurer` → Claude Code + KeeperHub MCP → `execute_workflow("9ujfl46sgqte26n2mho7k", {body:{to,amount,providerId}})` → `get_execution` polled to terminal | [`0x5ff4369d...11c3535290b96752`](https://sepolia.basescan.org/tx/0x5ff4369d01cde56e7481132554a3e04efa2d54f56952db6811c3535290b96752) | Agent's own report: "Solvency gate pass (balance 0.023001 >= 0.016000), transfer verified on-chain, sponsored gas." **This is the payout path going forward** — replaces the v1 raw `execute_transfer` call above |
+
+A real bug surfaced and was fixed during this test: `payoutIdempotencyKey`'s `period` was a
+date-only string, but SPEC.md §6 runs the treasurer on a $-threshold as well as daily, so two
+threshold-triggered batches on the same calendar day for the same amount collided on the same key —
+the second run crashed on the local `payouts.idempotency_key` UNIQUE constraint instead of being
+handled as an answer. Fixed by using a full timestamp per invocation (`cli.ts`) and by making
+`ledger.recordPayoutBroadcast` an `ON CONFLICT DO NOTHING` upsert with a new
+`ledger.existingPayoutStatus` check that skips already-verified or in-flight payouts instead of
+re-triggering the workflow — the workflow's own trigger carries no idempotency key, so this local
+check is what stops a retry from double-paying for real.
 
