@@ -444,6 +444,84 @@ export function buildServer(deps: ServerDeps): Hono {
     return { wallet: session.wallet };
   }
 
+  // --- MCP (SPEC.md §10): one tool, relay_prompt, over streamable HTTP.
+  // Stateless JSON-RPC — no session store, since every tool call is
+  // self-contained. A 402 from the inner call surfaces as an MCP tool
+  // error carrying the x402 challenge in its text, matching how
+  // KeeperHub's own paid marketplace listings report a 402 (this MCP
+  // transport does not auto-pay any more than theirs does). ---
+  const RELAY_PROMPT_TOOL = {
+    name: "relay_prompt",
+    description: "Relay a single prompt to a coding-agent model through IdleProxy and pay for it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        model: { type: "string", description: 'e.g. "claude-code/sonnet"' },
+        prompt: { type: "string" },
+        max_tokens: { type: "number", default: 256 },
+        api_key: { type: "string", description: "Optional ipx_sk_ prepaid key. Omit to receive a 402 x402 challenge instead." },
+      },
+      required: ["model", "prompt"],
+    },
+  };
+
+  app.post("/mcp", async (c) => {
+    const msg = await c.req.json<{ jsonrpc: string; id?: number | string; method: string; params?: any }>().catch(() => null);
+    if (!msg) return c.json({ jsonrpc: "2.0", error: { code: -32700, message: "parse error" } }, 400);
+
+    if (msg.method === "notifications/initialized") {
+      return c.body(null, 202);
+    }
+
+    if (msg.method === "initialize") {
+      return c.json({
+        jsonrpc: "2.0",
+        id: msg.id,
+        result: {
+          protocolVersion: "2025-03-26",
+          capabilities: { tools: {} },
+          serverInfo: { name: "idleproxy", version: "0.1.0" },
+        },
+      });
+    }
+
+    if (msg.method === "tools/list") {
+      return c.json({ jsonrpc: "2.0", id: msg.id, result: { tools: [RELAY_PROMPT_TOOL] } });
+    }
+
+    if (msg.method === "tools/call") {
+      const { name, arguments: args } = msg.params ?? {};
+      if (name !== "relay_prompt") {
+        return c.json({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: `unknown tool ${name}` }], isError: true } });
+      }
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (args.api_key) headers["x-api-key"] = args.api_key;
+
+      const innerRes = await app.fetch(
+        new Request("http://internal/v1/messages", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ model: args.model, max_tokens: args.max_tokens ?? 256, messages: [{ role: "user", content: args.prompt }] }),
+        }),
+      );
+      const innerBody = (await innerRes.json()) as any;
+
+      if (!innerRes.ok) {
+        return c.json({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: { content: [{ type: "text", text: JSON.stringify(innerBody) }], isError: true },
+        });
+      }
+
+      const text = innerBody.content?.[0]?.text ?? "";
+      return c.json({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }], isError: false } });
+    }
+
+    return c.json({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `method not found: ${msg.method}` } }, 404);
+  });
+
   // --- OpenAI-compatible surface (SPEC.md §10) — a thin shape translator
   // over /v1/messages, not a second settlement/dispatch implementation.
   // Re-invoking app.fetch() means every fix made to the Anthropic path
