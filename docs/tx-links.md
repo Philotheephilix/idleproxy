@@ -17,6 +17,5 @@ SPEC §9 R1 is dead weight — not built.
 |---|---|---|---|
 | 2026-08-10 | **First real paid inference call.** `POST /v1/messages` (band S, $0.02) → 402 → consumer signs EIP-3009 → router verifies + dedupes nonce → dispatches to Tier-0 Claude Code → settles via KeeperHub `contract-call` → responds | [`0xf38d212d...ae6a38fe5d9f2564`](https://sepolia.basescan.org/tx/0xf38d212d393ca3d05c35a1c90ce7b8b0b66430b6728d3890ae6a38fe5d9f2564) | End to end in 7.68s. On-chain `Transfer` event confirms exactly 20000 atomic units (`$0.02`) moved consumer → org wallet, `status: 0x1`. Provider (house) credited $0.016 (80%). Job, payment, and nonce rows all recorded correctly in sqlite. **M1 exit gate met on the money-in half.** |
 
-Payout-side of M1 (an agent executing a payout via `execute_transfer`) is the next real test, once
-`treasurer.ts` exists.
+| 2026-08-10 | **First agent-executed payout.** `idleproxy treasurer` spawns Claude Code with the KeeperHub MCP server attached; the agent itself calls `execute_transfer` (simulate → broadcast → poll) to pay the house provider its accrued $0.016 | [`0x5abbf02f...c65b74313f58`](https://sepolia.basescan.org/tx/0x5abbf02ff9b55a54d15abe7216416d52d4756e3b3c23a349e454c65b74313f58) | `sponsored: true`. Consumer/provider test wallet balance moved by exactly 16000 atomic units (`$0.016`), confirmed independently via `balanceOf` before/after and the tx receipt (`status: 0x1`). **M1 exit gate fully met — both halves, real funds, real chain.** |
 

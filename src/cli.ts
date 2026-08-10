@@ -3,6 +3,8 @@ import { openDb } from "./db.js";
 import { KeeperHubClient } from "./keeperhub.js";
 import { buildServer, startServer } from "./server.js";
 import { generateNodeKeypair } from "./attest.js";
+import { buildPayoutPlan, recordPlannedPayouts, runTreasurer } from "./treasurer.js";
+import { finalizePayout } from "./ledger.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
@@ -48,6 +50,54 @@ async function cmdDoctor(): Promise<void> {
   await runDoctor();
 }
 
+async function cmdTreasurer(): Promise<void> {
+  const env = loadEnv();
+  const chainProfile = await resolveChainProfile(env);
+  const db = openDb(env.DATABASE_PATH);
+  const period = new Date().toISOString().slice(0, 10);
+
+  const thresholdArg = process.argv.find((a) => a.startsWith("--threshold="));
+  const thresholdMicros = thresholdArg ? BigInt(Math.round(Number(thresholdArg.split("=")[1]) * 1_000_000)) : 0n;
+
+  const plan = buildPayoutPlan(db, chainProfile, thresholdMicros, period);
+  if (plan.length === 0) {
+    console.log("no pending payouts at or above threshold");
+    return;
+  }
+
+  console.log(`treasurer: ${plan.length} pending payout(s):`);
+  for (const p of plan) console.log(`  ${p.providerId} -> ${p.wallet}: $${p.amountUsdcDecimal} (key ${p.idempotencyKey.slice(0, 12)}...)`);
+
+  recordPlannedPayouts(db, plan);
+
+  console.log("spawning treasurer agent (Claude Code + KeeperHub MCP)...");
+  const result = await runTreasurer(env, chainProfile, plan);
+
+  if (!result.ok) {
+    console.error("treasurer agent failed:", result.error);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log("agent report:\n" + result.rawText);
+
+  if (!result.parsed) {
+    console.warn("could not parse structured summary from agent output — payouts recorded as broadcast, not finalized. Reconcile manually.");
+    return;
+  }
+
+  for (const entry of result.parsed) {
+    const p = plan[entry.providerIndex - 1];
+    if (!p) continue;
+    finalizePayout(db, p.idempotencyKey, {
+      transactionLink: entry.transactionHash ? `${chainProfile.explorerBase}/tx/${entry.transactionHash}` : undefined,
+      sponsored: entry.sponsored ?? undefined,
+      verified: entry.status === "completed",
+    });
+    console.log(`${p.providerId}: ${entry.status} ${entry.transactionHash ?? ""}`);
+  }
+}
+
 async function main(): Promise<void> {
   const [, , cmd] = process.argv;
   switch (cmd) {
@@ -61,8 +111,8 @@ async function main(): Promise<void> {
       console.error("idleproxy node: not yet implemented in this build");
       process.exit(1);
     case "treasurer":
-      console.error("idleproxy treasurer: not yet implemented in this build");
-      process.exit(1);
+      await cmdTreasurer();
+      break;
     case "facilitator-demo":
       console.error("idleproxy facilitator-demo: not yet implemented in this build");
       process.exit(1);
