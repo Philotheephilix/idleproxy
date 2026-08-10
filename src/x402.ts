@@ -119,3 +119,61 @@ export function splitSignature(signature: Hex): { v: number; r: Hex; s: Hex } {
   if (v < 27) v += 27;
   return { v, r, s };
 }
+
+/** The (v,r,s) overload only — SPEC.md §9 R1: FiatToken v2.2 exposes two overloads and passing an
+ * ABI with only this one avoids the undocumented functionName disambiguation. */
+const TRANSFER_WITH_AUTHORIZATION_ABI = JSON.stringify([
+  {
+    inputs: [
+      { internalType: "address", name: "from", type: "address" },
+      { internalType: "address", name: "to", type: "address" },
+      { internalType: "uint256", name: "value", type: "uint256" },
+      { internalType: "uint256", name: "validAfter", type: "uint256" },
+      { internalType: "uint256", name: "validBefore", type: "uint256" },
+      { internalType: "bytes32", name: "nonce", type: "bytes32" },
+      { internalType: "uint8", name: "v", type: "uint8" },
+      { internalType: "bytes32", name: "r", type: "bytes32" },
+      { internalType: "bytes32", name: "s", type: "bytes32" },
+    ],
+    name: "transferWithAuthorization",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+]);
+
+export interface ContractCallPayload {
+  contractAddress: string;
+  chainId: number;
+  functionName: "transferWithAuthorization";
+  functionArgs: string;
+  abi: string;
+}
+
+/** Builds the KeeperHub contract-call body for settling a verified authorization. */
+export function buildSettlementCall(
+  auth: TransferAuthorization,
+  signature: Hex,
+  usdcAddress: Address,
+  chainId: number,
+): ContractCallPayload {
+  const { v, r, s } = splitSignature(signature);
+  const functionArgs = JSON.stringify([
+    auth.from,
+    auth.to,
+    auth.value.toString(),
+    auth.validAfter.toString(),
+    auth.validBefore.toString(),
+    auth.nonce,
+    v,
+    r,
+    s,
+  ]);
+  return {
+    contractAddress: usdcAddress,
+    chainId,
+    functionName: "transferWithAuthorization",
+    functionArgs,
+    abi: TRANSFER_WITH_AUTHORIZATION_ABI,
+  };
+}
