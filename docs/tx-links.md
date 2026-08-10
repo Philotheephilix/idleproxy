@@ -19,6 +19,12 @@ SPEC §9 R1 is dead weight — not built.
 
 | 2026-08-10 | **First agent-executed payout** (v1, raw `execute_transfer`). `idleproxy treasurer` spawns Claude Code with the KeeperHub MCP server attached; the agent itself calls `execute_transfer` (simulate → broadcast → poll) to pay the house provider its accrued $0.016 | [`0x5abbf02f...c65b74313f58`](https://sepolia.basescan.org/tx/0x5abbf02ff9b55a54d15abe7216416d52d4756e3b3c23a349e454c65b74313f58) | `sponsored: true`. Consumer/provider test wallet balance moved by exactly 16000 atomic units (`$0.016`), confirmed independently via `balanceOf` before/after and the tx receipt (`status: 0x1`). **M1 exit gate fully met — both halves, real funds, real chain.** Superseded by the workflow-native path below |
 
+## Bounty: `idleproxy facilitator-demo`
+
+| Date (UTC) | What | Tx | Notes |
+|---|---|---|---|
+| 2026-08-10 | `npx idleproxy facilitator-demo` — throwaway wallet (freshly generated, never funded), zero-value EIP-3009 authorization settled through KeeperHub | [`0x534724b2...780e18e43217594`](https://sepolia.basescan.org/tx/0x534724b246bf9fd4fffd330fde5ef5df7cd3ad7b2c86a0d3a780e18e43217594) | Worked on the first run, zero funding, zero setup beyond an API key. `sponsored: true`, receipt `status: 0x1`. Tutorial: `docs/bounty/x402-facilitator.md` |
+
 ## Payout, upgraded to a KeeperHub workflow
 
 Money movement moved out of application code and into a KeeperHub workflow — `Payout Request`

@@ -5,8 +5,12 @@ import { buildServer, startServer, attachNodeServer } from "./server.js";
 import { NodeRegistry } from "./dispatch.js";
 import { generateNodeKeypair } from "./attest.js";
 import { runPayoutBatch } from "./treasurer.js";
+import { buildSettlementCall } from "./x402.js";
+import { KeeperHubError } from "./keeperhub.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { getAddress } from "viem";
 
 const HOUSE_KEY_PATH = "./idleproxy-house.key";
 
@@ -75,6 +79,85 @@ async function cmdTreasurer(): Promise<void> {
   for (const p of result.paid) console.log(`${p.providerId}: ${p.status} ${p.transactionHash ?? ""}`);
 }
 
+/**
+ * Bounty artifact (PLAN.md 2.3): being your own x402 facilitator on
+ * KeeperHub. Generates a throwaway EOA, signs a zero-value EIP-3009
+ * TransferWithAuthorization to the org wallet, and settles it through
+ * KeeperHub's contract-call endpoint — the exact pattern the whole
+ * settlement design (SPEC.md D1) rests on, in one command with zero setup.
+ */
+async function cmdFacilitatorDemo(): Promise<void> {
+  const env = loadEnv();
+  const chainProfile = await resolveChainProfile(env);
+  const keeperhub = new KeeperHubClient(env);
+
+  const throwaway = privateKeyToAccount(generatePrivateKey());
+  console.log(`throwaway signer: ${throwaway.address}`);
+
+  const now = Math.floor(Date.now() / 1000);
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
+  const nonce = ("0x" + Buffer.from(nonceBytes).toString("hex")) as `0x${string}`;
+  const auth = {
+    from: throwaway.address,
+    to: getAddress(env.PAY_TO_ADDRESS),
+    value: 0n,
+    validAfter: 0n,
+    validBefore: BigInt(now + 300),
+    nonce,
+  };
+
+  const signature = await throwaway.signTypedData({
+    domain: chainProfile.eip712Domain,
+    types: {
+      TransferWithAuthorization: [
+        { name: "from", type: "address" },
+        { name: "to", type: "address" },
+        { name: "value", type: "uint256" },
+        { name: "validAfter", type: "uint256" },
+        { name: "validBefore", type: "uint256" },
+        { name: "nonce", type: "bytes32" },
+      ],
+    },
+    primaryType: "TransferWithAuthorization",
+    message: auth,
+  });
+
+  const call = buildSettlementCall(auth, signature, chainProfile.usdcAddress, chainProfile.chainId);
+
+  console.log("simulating...");
+  const sim = await keeperhub.simulateContractCall(call);
+  if (sim.wouldRevert) {
+    console.error(`simulate says this would revert: ${sim.revertReason}`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`simulate OK (gasEstimate=${sim.gasEstimate})`);
+
+  console.log("broadcasting...");
+  const broadcast = await keeperhub.contractCall(call, nonce);
+  if ("kind" in broadcast) {
+    console.error(`broadcast returned ${broadcast.kind}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`polling execution ${broadcast.executionId}...`);
+  try {
+    const final = await keeperhub.pollToTerminal(broadcast.executionId);
+    if (final.status !== "completed" || !final.receipts.every((r) => r.verified)) {
+      console.error("settlement did not verify:", JSON.stringify(final));
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`\nSettled. This is a real KeeperHub-executed EIP-3009 TransferWithAuthorization:`);
+    console.log(final.transactionLink ?? final.transactionHash);
+    console.log(`sponsored: ${final.sponsored}`);
+  } catch (e) {
+    console.error(e instanceof KeeperHubError ? e.message : e);
+    process.exitCode = 1;
+  }
+}
+
 function argValue(flag: string, fallback: string): string {
   const arg = process.argv.find((a) => a.startsWith(`${flag}=`));
   return arg ? arg.slice(flag.length + 1) : fallback;
@@ -127,8 +210,8 @@ async function main(): Promise<void> {
       await cmdTreasurer();
       break;
     case "facilitator-demo":
-      console.error("idleproxy facilitator-demo: not yet implemented in this build");
-      process.exit(1);
+      await cmdFacilitatorDemo();
+      break;
     default:
       console.error("usage: idleproxy <serve|node|treasurer|doctor|facilitator-demo>");
       process.exit(1);
