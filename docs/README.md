@@ -1,4 +1,4 @@
-# declaude — docs
+# idleproxy — docs
 
 Full offline context for the **KeeperHub — Agents Onchain Hackathon** (DoraHacks), plus everything
 needed to build against KeeperHub.

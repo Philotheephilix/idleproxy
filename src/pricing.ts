@@ -55,7 +55,3 @@ export function bandFor(model: string, maxTokens: number): Band {
   const index = isOpus ? Math.min(baseIndex + 1, BANDS.length - 1) : baseIndex;
   return BANDS[index];
 }
-
-export function protocolFeeMicros(band: Band): bigint {
-  return band.priceMicros - band.providerShareMicros;
-}

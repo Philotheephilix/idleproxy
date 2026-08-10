@@ -6,11 +6,14 @@ import { randomUUID } from "node:crypto";
 
 /**
  * Treasurer — an agent, not a script (SPEC.md D-list "Treasurer" actor, §6
- * outbound). Amounts and idempotency keys are computed deterministically by
- * this file, never by the model — money math is not something to trust an
- * LLM with. The agent's job is to hold the KeeperHub MCP session and place
- * the exact calls it's given, via `execute_transfer`, so the payout really
- * is agent-executed through KeeperHub rather than a bare REST call.
+ * outbound). Amounts are computed deterministically by this file, never by
+ * the model — money math is not something to trust an LLM with. The agent's
+ * job is to hold the KeeperHub MCP session and invoke the payout workflow
+ * (execute_workflow + get_execution) with the exact numbers it's given, so
+ * the payout really is agent-executed through KeeperHub rather than a bare
+ * REST call wearing an agent costume. See buildPrompt below for why the
+ * business logic (solvency check + transfer) lives in the workflow itself,
+ * not in a raw execute_transfer call.
  */
 
 export interface TreasurerPayoutPlan {

@@ -7,41 +7,6 @@ import type { Eip712Domain } from "./config.js";
  * through KeeperHub only after both pass.
  */
 
-export interface X402Challenge {
-  scheme: "exact";
-  network: "base-sepolia";
-  asset: Address;
-  maxAmountRequired: string; // atomic units, decimal string
-  payTo: Address;
-  nonce: Hex;
-  validBefore: number; // unix seconds
-}
-
-export function buildChallenge(opts: {
-  asset: Address;
-  payTo: Address;
-  amountMicros: bigint; // USDC atomic units (6 decimals)
-  ttlSeconds?: number;
-}): X402Challenge {
-  const nonce = randomNonce();
-  const validBefore = Math.floor(Date.now() / 1000) + (opts.ttlSeconds ?? 300);
-  return {
-    scheme: "exact",
-    network: "base-sepolia",
-    asset: opts.asset,
-    maxAmountRequired: opts.amountMicros.toString(),
-    payTo: opts.payTo,
-    nonce,
-    validBefore,
-  };
-}
-
-function randomNonce(): Hex {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return ("0x" + Buffer.from(bytes).toString("hex")) as Hex;
-}
-
 export interface TransferAuthorization {
   from: Address;
   to: Address;

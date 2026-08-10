@@ -1,7 +1,14 @@
 # Anthropic-compatible API surface
 
+**Superseded by the actual implementation.** This is the pre-build design sketch, kept for the
+reasoning trail (`summary.md`'s document map). The authoritative wire shapes are `src/server.ts`
+(SPEC.md §10): response headers are `x-idleproxy-attestation` / `x-idleproxy-node` /
+`x-idleproxy-settlement-tx` (not `x-declaude-*`-named headers below), the MCP surface is `POST /mcp`
+with a single `relay_prompt` tool (not a `/mcp/estimate_tokens`-style path), and there is no separate
+token-estimate endpoint. Where this document and the code disagree, the code is right.
+
 What the relay exposes to consumers. Target: **point any Anthropic SDK at our base URL and it works** —
-`ANTHROPIC_BASE_URL=https://api.declaude.xyz` and nothing else changes.
+`ANTHROPIC_BASE_URL=https://api.idleproxy.xyz` and nothing else changes.
 
 Wire shapes below are taken from the current Anthropic API reference (via the `claude-api` skill,
 2026-08-09), not from memory. Where we deviate, the deviation is stated and justified — silent
@@ -52,7 +59,7 @@ declines — dropping it would misreport a decline as an empty success.
 
 `usage` is read from the backend CLI's own reported usage, not estimated. If a backend cannot report
 it, the field is present with the relay's `count_tokens` estimate and the response carries
-`x-declaude-usage-estimated: true` — an honest header beats a confident wrong number.
+`x-idleproxy-usage-estimated: true` — an honest header beats a confident wrong number.
 
 ---
 
@@ -89,7 +96,7 @@ absence.
 ```json
 { "data": [ { "type": "model",
     "id": "claude-code/opus",
-    "display_name": "Claude Code (Opus 5) via DeClaude",
+    "display_name": "Claude Code (Opus 5) via IdleProxy",
     "created_at": "2026-08-…",
     "max_input_tokens": 1000000,
     "max_tokens": 64000,
@@ -99,13 +106,13 @@ absence.
       "tool_use": {"supported": false},
       "thinking": {"supported": true, "types": {"adaptive": {"supported": true}}}
     },
-    "declaude": {"backend": "claude-code", "nodes_available": 3, "price_usdc": "0.03"} } ],
+    "idleproxy": {"backend": "claude-code", "nodes_available": 3, "price_usdc": "0.03"} } ],
   "has_more": false, "first_id": "…", "last_id": "…" }
 ```
 
 Field names match upstream exactly: `max_input_tokens` is the context window and `max_tokens` the
 output cap — **there is no `context_window` field** upstream and we don't invent one. Our additions
-live under a single `declaude` key so a strict client can ignore them wholesale.
+live under a single `idleproxy` key so a strict client can ignore them wholesale.
 
 `GET /v1/models/{id}` returns one such object; unknown ID → `404 not_found_error`.
 
@@ -136,7 +143,7 @@ shape has no field to mark a number as approximate, so the caller cannot tell. T
 silent lie this document exists to prevent. A 404 is an optional pre-flight call failing, which SDK
 clients degrade past gracefully.
 
-If a pre-flight estimate is wanted later it goes at `/declaude/estimate_tokens` — a non-Anthropic
+If a pre-flight estimate is wanted later it goes at `/idleproxy/estimate_tokens` — a non-Anthropic
 path, where it can never masquerade as the real endpoint.
 
 ---
@@ -183,7 +190,7 @@ tool scaffolding. Outputs will differ from the same prompt sent to `api.anthropi
 Three places this is disclosed, because one is not enough:
 
 1. **Model ID** — the `claude-code/` backend prefix carries it into every log and every response body.
-2. **Response header** — `x-declaude-backend: claude-code` on every response.
+2. **Response header** — `x-idleproxy-backend: claude-code` on every response.
 3. **README, above the quickstart** — a paragraph, not a footnote.
 
 Also disclosed in the same place: **the provider's machine sees the prompt in plaintext.** That is
@@ -196,7 +203,7 @@ API is entitled to know before their first call rather than after.
 
 - `POST /v1/chat/completions` — OpenAI-compatible, same dispatch path, for clients that speak that
   shape instead.
-- MCP tool at `https://api.declaude.xyz/mcp` — one typed tool, for agents that prefer tool-selection
+- MCP tool at `https://api.idleproxy.xyz/mcp` — one typed tool, for agents that prefer tool-selection
   over base-URL swapping.
 
 Both are thin adapters over the same router. The Anthropic surface is the primary one.

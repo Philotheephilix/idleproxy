@@ -15,7 +15,6 @@ const envSchema = z.object({
 
   KEEPERHUB_API_BASE: z.string().default("https://app.keeperhub.com/api"),
   KEEPERHUB_API_KEY: z.string().default(""),
-  KEEPERHUB_TREASURY_ADDRESS: z.string().default("0x0000000000000000000000000000000000dEaD"),
   // Webhook-triggered workflow that owns the payout's solvency check +
   // transfer natively in KeeperHub (Check Treasury Balance -> Solvency
   // Gate -> Pay Provider). See docs/tx-links.md for the live proof run.

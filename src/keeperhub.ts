@@ -72,15 +72,6 @@ interface ContractCallBody {
   simulate?: boolean;
 }
 
-interface TransferBody {
-  chainId: number;
-  recipientAddress: string;
-  amount: string;
-  tokenAddress?: string;
-  gasLimitMultiplier?: string;
-  simulate?: boolean;
-}
-
 export class KeeperHubClient {
   private readonly base: string;
   private readonly apiKey: string;
@@ -119,14 +110,6 @@ export class KeeperHubClient {
     return json as SimulateResult;
   }
 
-  async simulateTransfer(body: Omit<TransferBody, "simulate">): Promise<SimulateResult> {
-    const { json, status } = await this.request("/execute/transfer", { ...body, simulate: true });
-    if (status !== 200 && status !== 400) {
-      throw new KeeperHubError(`simulate transfer: unexpected status ${status}`, json, status);
-    }
-    return json as SimulateResult;
-  }
-
   /**
    * Broadcast a contract call. Returns the execution id, or a typed
    * idempotency outcome — both are answers, not exceptions (PLAN.md §2.2).
@@ -137,23 +120,6 @@ export class KeeperHubClient {
   ): Promise<{ executionId: string; status: string } | IdempotencyConflict | IdempotencyInProgress> {
     const { json, status } = await this.request("/execute/contract-call", body, idempotencyKey);
     return this.interpretBroadcast(status, json);
-  }
-
-  async transfer(
-    body: Omit<TransferBody, "simulate">,
-    idempotencyKey: string,
-  ): Promise<{ executionId: string; status: string } | IdempotencyConflict | IdempotencyInProgress> {
-    const { json, status } = await this.request("/execute/transfer", body, idempotencyKey);
-    return this.interpretBroadcast(status, json);
-  }
-
-  async checkAndExecute(
-    body: Record<string, unknown>,
-    idempotencyKey: string,
-  ): Promise<any> {
-    const { json, status } = await this.request("/execute/check-and-execute", body, idempotencyKey);
-    if (status === 409) return this.interpretConflict(json);
-    return json;
   }
 
   private interpretBroadcast(
@@ -206,12 +172,4 @@ export class KeeperHubClient {
     }
     throw new KeeperHubError(`polling timed out after ${maxWaitMs}ms`, { executionId }, 0);
   }
-}
-
-export function isConflict(x: unknown): x is IdempotencyConflict {
-  return typeof x === "object" && x !== null && (x as any).kind === "idempotency_conflict";
-}
-
-export function isInProgress(x: unknown): x is IdempotencyInProgress {
-  return typeof x === "object" && x !== null && (x as any).kind === "idempotency_in_progress";
 }
