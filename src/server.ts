@@ -443,6 +443,63 @@ export function buildServer(deps: ServerDeps): Hono {
     return { wallet: session.wallet };
   }
 
+  // --- OpenAI-compatible surface (SPEC.md §10) — a thin shape translator
+  // over /v1/messages, not a second settlement/dispatch implementation.
+  // Re-invoking app.fetch() means every fix made to the Anthropic path
+  // (pricing, x402, attestation, dispatch) applies here automatically. ---
+  app.post("/v1/chat/completions", async (c) => {
+    let body: { model: string; max_tokens?: number; max_completion_tokens?: number; messages: AnthropicMessage[] };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: { message: "invalid JSON body", type: "invalid_request_error" } }, 400);
+    }
+
+    const anthropicBody = {
+      model: body.model,
+      max_tokens: body.max_tokens ?? body.max_completion_tokens ?? 256,
+      messages: body.messages,
+    };
+
+    const forwardHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    const paymentHeader = c.req.header("x-payment");
+    const apiKeyHeader = c.req.header("x-api-key");
+    if (paymentHeader) forwardHeaders["x-payment"] = paymentHeader;
+    if (apiKeyHeader) forwardHeaders["x-api-key"] = apiKeyHeader;
+
+    const innerRes = await app.fetch(
+      new Request("http://internal/v1/messages", { method: "POST", headers: forwardHeaders, body: JSON.stringify(anthropicBody) }),
+    );
+    const innerBody = (await innerRes.json()) as any;
+
+    if (!innerRes.ok) {
+      // Forward `accepts` too on a 402 — it's the x402 challenge itself, not
+      // OpenAI error-shape decoration, and a client needs it to pay.
+      return c.json(
+        { error: { message: innerBody.error?.message ?? "request failed", type: innerBody.error?.type ?? "api_error" }, accepts: innerBody.accepts },
+        innerRes.status as 400,
+      );
+    }
+
+    for (const header of ["x-idleproxy-attestation", "x-idleproxy-node", "x-idleproxy-settlement-tx"]) {
+      const value = innerRes.headers.get(header);
+      if (value) c.header(header, value);
+    }
+
+    const text = innerBody.content?.[0]?.text ?? "";
+    const promptTokens = innerBody.usage?.input_tokens ?? 0;
+    const completionTokens = innerBody.usage?.output_tokens ?? 0;
+
+    return c.json({
+      id: innerBody.id,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: body.model,
+      choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
+      usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens },
+    });
+  });
+
   app.get("/api/provider/disclosure", (c) => c.json({ version: 1, points: DISCLOSURE_TEXT }));
 
   app.get("/api/siwe/nonce", (c) => {
