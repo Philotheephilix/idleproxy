@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { getAddress, type Address, type Hex } from "viem";
+import { getAddress, verifyMessage, type Address, type Hex } from "viem";
 import type Database from "better-sqlite3";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Env, ChainProfile } from "./config.js";
@@ -411,6 +411,145 @@ export function buildServer(deps: ServerDeps): Hono {
     return c.json({ balance_micros: row.balance });
   });
 
+  // --- Provider onboarding: SIWE-lite wallet auth, disclosure gate, caps
+  // + node-token issuance (SPEC.md §8: "No node token is issued without
+  // it [disclosure accept]"). Sessions and nonces are in-memory — fine for
+  // a single-process monolith; they don't need to survive a restart. ---
+  const siweNonces = new Map<string, number>(); // nonce -> expiresAt
+  const sessions = new Map<string, { wallet: string; expiresAt: number }>(); // session token -> wallet
+
+  const DISCLOSURE_TEXT = [
+    "You are offering your own paid subscription to anonymous third parties for payment. We copy your credential into a throwaway home directory and start the program you installed; the token is never read, parsed, or transmitted. The requests it answers are billed to your subscription and count against your limits.",
+    "This may violate your provider's Terms of Service. Anthropic's terms restrict reselling or sharing subscription capacity. Your account is at risk of suspension, with no recourse from us. Do not connect an account you cannot afford to lose.",
+    "Consumers send prompts you cannot see in advance and cannot control.",
+    "Default execution is tool-free. Tool-enabled execution is a separate opt-in and runs in an isolated container; isolation is strong, not perfect.",
+    "You set hard caps and a reserve. Enforcement is best-effort, from figures the CLI self-reports — a strong bound, not a guarantee. Kill switch at any time.",
+    "This is testnet. Payouts are Base Sepolia test-USDC with no monetary value.",
+    "This version is custodial. Payouts are executed via KeeperHub and independently verifiable onchain.",
+  ];
+
+  function newSession(wallet: string): string {
+    const token = randomBytes(24).toString("hex");
+    sessions.set(token, { wallet, expiresAt: Date.now() + 60 * 60 * 1000 });
+    return token;
+  }
+
+  function requireSession(c: Parameters<Parameters<Hono["use"]>[1]>[0]): { wallet: string } | null {
+    const auth = c.req.header("authorization");
+    const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
+    if (!token) return null;
+    const session = sessions.get(token);
+    if (!session || session.expiresAt < Date.now()) return null;
+    return { wallet: session.wallet };
+  }
+
+  app.get("/api/provider/disclosure", (c) => c.json({ version: 1, points: DISCLOSURE_TEXT }));
+
+  app.get("/api/siwe/nonce", (c) => {
+    const nonce = randomBytes(16).toString("hex");
+    siweNonces.set(nonce, Date.now() + 5 * 60 * 1000);
+    return c.json({ nonce, message: `Sign this nonce to connect to IdleProxy: ${nonce}` });
+  });
+
+  app.post("/api/siwe/verify", async (c) => {
+    const body = await c.req.json<{ address: string; nonce: string; signature: Hex }>().catch(() => null);
+    if (!body) return c.json({ error: { type: "invalid_request_error", message: "invalid JSON body" } }, 400);
+
+    const expiresAt = siweNonces.get(body.nonce);
+    if (!expiresAt || expiresAt < Date.now()) {
+      return c.json({ error: { type: "invalid_request_error", message: "unknown or expired nonce" } }, 400);
+    }
+    siweNonces.delete(body.nonce); // single use
+
+    const address = getAddress(body.address);
+    const valid = await verifyMessage({
+      address,
+      message: `Sign this nonce to connect to IdleProxy: ${body.nonce}`,
+      signature: body.signature,
+    });
+    if (!valid) return c.json({ error: { type: "invalid_request_error", message: "signature invalid" } }, 400);
+
+    const session = newSession(address);
+    return c.json({ session, wallet: address });
+  });
+
+  app.post("/api/provider/accept-disclosure", async (c) => {
+    const auth = requireSession(c);
+    if (!auth) return c.json({ error: { type: "unauthorized", message: "sign in first" } }, 401);
+    const body = await c.req.json<{ tier1Accepted?: boolean }>().catch(() => ({}) as { tier1Accepted?: boolean });
+
+    const providerId = upsertProviderByWallet(db, auth.wallet);
+    const now = Date.now();
+    db.prepare(`UPDATE providers SET disclosure_accepted_at = ?, tier1_accepted_at = ? WHERE id = ?`).run(
+      now,
+      body.tier1Accepted ? now : null,
+      providerId,
+    );
+    return c.json({ ok: true, disclosureAcceptedAt: now, tier1Accepted: !!body.tier1Accepted });
+  });
+
+  app.post("/api/provider/node-token", async (c) => {
+    const auth = requireSession(c);
+    if (!auth) return c.json({ error: { type: "unauthorized", message: "sign in first" } }, 401);
+
+    const providerId = upsertProviderByWallet(db, auth.wallet);
+    const row = db.prepare(`SELECT disclosure_accepted_at AS acceptedAt FROM providers WHERE id = ?`).get(providerId) as
+      | { acceptedAt: number | null }
+      | undefined;
+    if (!row?.acceptedAt) {
+      return c.json({ error: { type: "invalid_request_error", message: "accept the disclosure first" } }, 400);
+    }
+
+    const body = await c.req
+      .json<{ dailyUsdCap?: number; dailyRequestCap?: number; maxConcurrency?: number; reserveFraction?: number }>()
+      .catch(() => ({}) as Record<string, never>);
+    const dailyUsdCap = body.dailyUsdCap ?? 5;
+    const dailyRequestCap = body.dailyRequestCap ?? 500;
+    const maxConcurrency = body.maxConcurrency ?? 1;
+    const reserveFraction = body.reserveFraction ?? 0.2;
+
+    const nodeToken = randomBytes(24).toString("hex");
+    db.prepare(`UPDATE providers SET node_token = ? WHERE id = ?`).run(nodeToken, providerId);
+
+    const command =
+      `npx idleproxy node --wallet=${auth.wallet} --token=${nodeToken} ` +
+      `--daily-usd-cap=${dailyUsdCap} --daily-request-cap=${dailyRequestCap} ` +
+      `--max-concurrency=${maxConcurrency} --reserve-fraction=${reserveFraction}`;
+
+    return c.json({ nodeToken, command });
+  });
+
+  app.get("/api/provider/me", (c) => {
+    const auth = requireSession(c);
+    if (!auth) return c.json({ error: { type: "unauthorized", message: "sign in first" } }, 401);
+
+    const providerId = upsertProviderByWallet(db, auth.wallet);
+    const provider = db.prepare(`SELECT * FROM providers WHERE id = ?`).get(providerId);
+    const balance = db.prepare(`SELECT * FROM provider_balances WHERE provider_id = ?`).get(providerId);
+    const nodes = db.prepare(`SELECT id, adapter, status, last_heartbeat_at FROM nodes WHERE provider_id = ?`).all(providerId);
+    const jobs = db
+      .prepare(`SELECT id, model, band, status, cost_usd_micros, created_at FROM jobs WHERE node_id IN (SELECT id FROM nodes WHERE provider_id = ?) ORDER BY created_at DESC LIMIT 20`)
+      .all(providerId);
+    const payouts = db.prepare(`SELECT * FROM payouts WHERE provider_id = ? ORDER BY created_at DESC LIMIT 20`).all(providerId);
+
+    return c.json({ provider, balance, nodes, jobs, payouts });
+  });
+
+  app.post("/api/provider/kill-switch", async (c) => {
+    const auth = requireSession(c);
+    if (!auth) return c.json({ error: { type: "unauthorized", message: "sign in first" } }, 401);
+    const body = await c.req.json<{ enabled: boolean }>().catch(() => ({ enabled: true }));
+
+    const providerId = upsertProviderByWallet(db, auth.wallet);
+    db.prepare(`UPDATE providers SET kill_switch = ? WHERE id = ?`).run(body.enabled ? 1 : 0, providerId);
+    if (body.enabled) {
+      for (const node of registry.list().filter((n) => n.providerId === providerId)) {
+        node.ws.close();
+      }
+    }
+    return c.json({ ok: true, killSwitch: !!body.enabled });
+  });
+
   app.use("/*", serveStatic({ root: "./public" }));
 
   return app;
@@ -463,6 +602,29 @@ export function attachNodeServer(httpServer: import("node:http").Server, registr
 
       if (msg.type === "hello") {
         const providerId = upsertProviderByWallet(db, msg.wallet);
+        const provider = db
+          .prepare(`SELECT node_token AS nodeToken, disclosure_accepted_at AS acceptedAt, tier1_accepted_at AS tier1AcceptedAt, kill_switch AS killSwitch FROM providers WHERE id = ?`)
+          .get(providerId) as { nodeToken: string | null; acceptedAt: number | null; tier1AcceptedAt: number | null; killSwitch: number } | undefined;
+
+        // SPEC.md §8: "No node token is issued without it [disclosure
+        // accept]" — enforced here, not just at issuance time, so a stale
+        // or forged token can't bypass the onboarding gate.
+        if (!provider?.acceptedAt || !provider.nodeToken || provider.nodeToken !== msg.token) {
+          ws.send(JSON.stringify({ type: "error", message: "not onboarded: accept the disclosure and request a node token first" }));
+          ws.close();
+          return;
+        }
+        if (provider.killSwitch) {
+          ws.send(JSON.stringify({ type: "error", message: "kill switch is engaged for this provider" }));
+          ws.close();
+          return;
+        }
+        if (msg.adapter === "claude-code-tools" && !provider.tier1AcceptedAt) {
+          ws.send(JSON.stringify({ type: "error", message: "Tier 1 requires its own disclosure opt-in" }));
+          ws.close();
+          return;
+        }
+
         nodeId = `n_${msg.pubkey.slice(0, 16)}`;
         // Kept bare ("sonnet", not "claude-code/sonnet") — matches the
         // claude --model flag and the heartbeat's capacity keys, which the

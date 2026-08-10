@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS providers (
   id            TEXT PRIMARY KEY,
   wallet        TEXT NOT NULL,
   pubkey        TEXT,
+  node_token    TEXT,
   disclosure_accepted_at INTEGER,
   tier1_accepted_at       INTEGER,
   kill_switch   INTEGER NOT NULL DEFAULT 0,

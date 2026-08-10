@@ -139,14 +139,20 @@ async function cmdNode(): Promise<void> {
   const { runNode } = await import("./node/agent.js");
 
   const wallet = argValue("--wallet", process.env.CONSUMER_TEST_ADDRESS ?? "");
+  const token = argValue("--token", env.NODE_TOKEN);
   if (!wallet) {
     console.error("idleproxy node: --wallet=0x... is required");
+    process.exit(1);
+  }
+  if (!token) {
+    console.error("idleproxy node: --token=... is required (from POST /api/provider/node-token, after accepting the disclosure)");
     process.exit(1);
   }
 
   await runNode({
     routerWsUrl: env.ROUTER_WS_URL,
     wallet,
+    token,
     adapter: "claude-code",
     models: argValue("--models", "sonnet,opus,haiku").split(","),
     credentialsPath: env.CLAUDE_CREDENTIALS_PATH,

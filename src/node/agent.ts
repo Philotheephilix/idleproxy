@@ -14,6 +14,7 @@ import { generateNodeKeypair, signAttestation, sha256Hex, type AttestationInput 
 export interface NodeConfig {
   routerWsUrl: string;
   wallet: string; // EVM payout address — also today's node identity, see dispatch.ts
+  token: string; // issued by POST /api/provider/node-token after disclosure accept
   adapter: "claude-code";
   models: string[];
   credentialsPath: string;
@@ -126,6 +127,7 @@ export async function runNode(cfg: NodeConfig): Promise<void> {
         JSON.stringify({
           type: "hello",
           wallet: cfg.wallet,
+          token: cfg.token,
           adapter: cfg.adapter,
           models: cfg.models,
           pubkey: keypair.publicKeyHex,
@@ -146,6 +148,10 @@ export async function runNode(cfg: NodeConfig): Promise<void> {
       try {
         msg = JSON.parse(raw.toString());
       } catch {
+        return;
+      }
+      if (msg.type === "error") {
+        console.error(`router: ${msg.message}`);
         return;
       }
       if (msg.type !== "job") return;
