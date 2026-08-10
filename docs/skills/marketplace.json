@@ -1,0 +1,39 @@
+{
+  "name": "keeperhub-plugins",
+  "owner": {
+    "name": "KeeperHub",
+    "email": "simon@keeperhub.com"
+  },
+  "metadata": {
+    "description": "Claude Code plugins by KeeperHub",
+    "version": "1.0.0",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "keeperhub",
+      "source": "./plugins/keeperhub",
+      "description": "Build and manage automation workflows from Claude Code. Monitor smart contracts, track on-chain events, configure scheduled tasks, and connect notifications across Discord, Telegram, email, and webhooks. Connects to KeeperHub's remote MCP server with OAuth browser authentication.",
+      "version": "4.0.0",
+      "author": {
+        "name": "KeeperHub",
+        "email": "support@keeperhub.com",
+        "url": "https://keeperhub.com"
+      },
+      "homepage": "https://app.keeperhub.com",
+      "repository": "https://github.com/KeeperHub/claude-plugins",
+      "license": "MIT",
+      "keywords": [
+        "keeperhub",
+        "workflow",
+        "automation",
+        "web3",
+        "smart-contracts",
+        "mcp",
+        "agentic-wallet",
+        "x402"
+      ],
+      "category": "automation"
+    }
+  ]
+}
