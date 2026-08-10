@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { getAddress, type Address, type Hex } from "viem";
 import type Database from "better-sqlite3";
+import { WebSocketServer, type WebSocket } from "ws";
 import type { Env, ChainProfile } from "./config.js";
 import { KeeperHubClient } from "./keeperhub.js";
 import { bandFor, PricingError, type Band } from "./pricing.js";
@@ -11,7 +12,7 @@ import { filterInput } from "./filter.js";
 import { creditProvider } from "./ledger.js";
 import { runTier0 } from "./node/tier0.js";
 import { signAttestation, sha256Hex, type AttestationInput } from "./attest.js";
-import { randomUUID } from "node:crypto";
+import { NodeRegistry, newJobId, type ConnectedNode } from "./dispatch.js";
 
 /** House adapter: what the router itself can serve tonight, in-process,
  * before the WS provider-node registry (dispatch.ts) takes over routing.
@@ -85,19 +86,20 @@ export interface ServerDeps {
   keeperhub: KeeperHubClient;
   houseNodeKeypair: { publicKeyHex: string; privateKeyDer: Buffer };
   credentialsPath: string;
+  registry: NodeRegistry;
 }
 
 export function buildServer(deps: ServerDeps): Hono {
-  const { env, chainProfile, db, keeperhub, houseNodeKeypair, credentialsPath } = deps;
+  const { env, chainProfile, db, keeperhub, houseNodeKeypair, credentialsPath, registry } = deps;
   const app = new Hono();
 
   ensureHouseProvider(db);
 
   app.get("/v1/models", (c) => {
-    return c.json({
-      object: "list",
-      data: HOUSE_MODELS.map((id) => ({ id, object: "model" })),
-    });
+    const remoteModels = new Set<string>();
+    for (const node of registry.list()) for (const m of node.models) remoteModels.add(`${node.adapter}/${m}`);
+    const data = [...new Set([...HOUSE_MODELS, ...remoteModels])].map((id) => ({ id, object: "model" }));
+    return c.json({ object: "list", data });
   });
 
   app.post("/v1/messages", async (c) => {
@@ -183,16 +185,40 @@ export function buildServer(deps: ServerDeps): Hono {
       payment = decoded;
     }
 
-    // --- Dispatch: house Tier-0 node, in-process (SPEC.md §5, PLAN.md 0.3) ---
-    const jobId = randomUUID();
-    const result = await runTier0({
-      jobId,
-      prompt: promptText,
-      model: claudeModel,
-      maxBudgetUsd: MAX_JOB_BUDGET_USD,
-      credentialsPath,
-      timeoutMs: 90_000,
-    });
+    // --- Dispatch: remote node first (dispatch.ts, one retry, ranked by headroom),
+    // house Tier-0 in-process as fallback (SPEC.md §5, §6 "house-node fallback") ---
+    const jobId = newJobId();
+    const remote = await registry.dispatch(claudeModel, { jobId, prompt: promptText, model: claudeModel, maxBudgetUsd: MAX_JOB_BUDGET_USD });
+
+    let result: {
+      ok: boolean;
+      text?: string;
+      modelReported?: string;
+      costUsd?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      error?: string;
+    };
+    let servingProviderId: string;
+    let remoteAttestation: string | undefined;
+    let remoteNode: ConnectedNode | undefined;
+
+    if (remote) {
+      result = remote.result;
+      servingProviderId = remote.node.providerId;
+      remoteAttestation = remote.result.attestation;
+      remoteNode = remote.node;
+    } else {
+      result = await runTier0({
+        jobId,
+        prompt: promptText,
+        model: claudeModel,
+        maxBudgetUsd: MAX_JOB_BUDGET_USD,
+        credentialsPath,
+        timeoutMs: 90_000,
+      });
+      servingProviderId = HOUSE_PROVIDER_ID;
+    }
 
     if (!result.ok) {
       // Never settle on a failed job. Refund a debited prepaid balance; an
@@ -242,14 +268,31 @@ export function buildServer(deps: ServerDeps): Hono {
       outputTokens: result.outputTokens ?? 0,
       costUsdMicros: BigInt(Math.round((result.costUsd ?? 0) * 1_000_000)),
     };
-    const attestation = signAttestation(attestationInput, houseNodeKeypair.privateKeyDer);
 
-    creditProvider(db, HOUSE_PROVIDER_ID, band);
+    let attestation: string;
+    if (remoteNode && remoteAttestation) {
+      // Remote node already signed with its own key — verify against its
+      // registered pubkey (SPEC.md §7: deterrent, not proof) and log rather
+      // than reject on mismatch, since the completion has already happened.
+      const valid = registry.verifyJobAttestation(remoteNode.nodeId, attestationInput, remoteAttestation);
+      if (!valid) {
+        db.prepare(`INSERT INTO events (kind, payload, created_at) VALUES ('attestation_mismatch', ?, ?)`).run(
+          JSON.stringify({ jobId, nodeId: remoteNode.nodeId }),
+          Date.now(),
+        );
+      }
+      attestation = remoteAttestation;
+    } else {
+      attestation = signAttestation(attestationInput, houseNodeKeypair.privateKeyDer);
+    }
+
+    creditProvider(db, servingProviderId, band);
     db.prepare(
       `INSERT INTO jobs (id, node_id, payment_id, model, band, status, cost_usd_micros, input_tokens, output_tokens, attestation, created_at, completed_at)
-       VALUES (?, NULL, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?)`,
     ).run(
       jobId,
+      remoteNode?.nodeId ?? null,
       payment ? jobId : null,
       body.model,
       band.id,
@@ -262,7 +305,7 @@ export function buildServer(deps: ServerDeps): Hono {
     );
 
     c.header("x-idleproxy-attestation", attestation);
-    c.header("x-idleproxy-node", HOUSE_PROVIDER_ID);
+    c.header("x-idleproxy-node", servingProviderId);
     if (settlementTx) c.header("x-idleproxy-settlement-tx", settlementTx);
 
     return c.json({
@@ -292,8 +335,78 @@ function ensureHouseProvider(db: Database.Database): void {
   }
 }
 
-export function startServer(app: Hono, port: number): void {
-  serve({ fetch: app.fetch, port }, (info) => {
-    console.log(`idleproxy router listening on :${info.port}`);
+/** Upserts a provider by wallet and registers a node row, so a WS `hello`
+ * from an unrecognized wallet just works — SIWE-gated onboarding (issuing a
+ * scoped node token ahead of time) is the UI's job, not dispatch's; see
+ * PLAN.md Phase 3 / public/ UI task. */
+function upsertProviderByWallet(db: Database.Database, wallet: string): string {
+  const existing = db.prepare(`SELECT id FROM providers WHERE wallet = ?`).get(wallet) as { id: string } | undefined;
+  if (existing) return existing.id;
+  const id = `p_${wallet.slice(2, 10).toLowerCase()}`;
+  db.prepare(`INSERT INTO providers (id, wallet, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING`).run(id, wallet, Date.now());
+  return id;
+}
+
+export function attachNodeServer(httpServer: import("node:http").Server, registry: NodeRegistry, db: Database.Database): void {
+  const wss = new WebSocketServer({ noServer: true });
+
+  httpServer.on("upgrade", (req, socket, head) => {
+    if (req.url !== "/node") {
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   });
+
+  wss.on("connection", (ws: WebSocket) => {
+    let nodeId: string | null = null;
+
+    ws.on("message", (raw) => {
+      let msg: any;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+
+      if (msg.type === "hello") {
+        const providerId = upsertProviderByWallet(db, msg.wallet);
+        nodeId = `n_${msg.pubkey.slice(0, 16)}`;
+        // Kept bare ("sonnet", not "claude-code/sonnet") — matches the
+        // claude --model flag and the heartbeat's capacity keys, which the
+        // node also sends bare. Only /v1/models prefixes for presentation.
+        registry.register({
+          nodeId,
+          providerId,
+          wallet: msg.wallet,
+          adapter: msg.adapter,
+          models: msg.models,
+          pubkey: msg.pubkey,
+          ws,
+          capacity: new Map(),
+          lastHeartbeatAt: Date.now(),
+        });
+        ws.send(JSON.stringify({ type: "hello_ack", nodeId }));
+        return;
+      }
+
+      if (msg.type === "heartbeat" && nodeId) {
+        registry.updateCapacity(nodeId, msg.capacity);
+        return;
+      }
+
+      if (msg.type === "job_result") {
+        registry.resolveJobResult(msg);
+        return;
+      }
+    });
+
+    ws.on("close", () => registry.handleDisconnect(ws));
+  });
+}
+
+export function startServer(app: Hono, port: number): import("node:http").Server {
+  return serve({ fetch: app.fetch, port }, (info) => {
+    console.log(`idleproxy router listening on :${info.port}`);
+  }) as import("node:http").Server;
 }

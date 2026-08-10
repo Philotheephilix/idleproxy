@@ -1,7 +1,8 @@
 import { loadEnv, resolveChainProfile } from "./config.js";
 import { openDb } from "./db.js";
 import { KeeperHubClient } from "./keeperhub.js";
-import { buildServer, startServer } from "./server.js";
+import { buildServer, startServer, attachNodeServer } from "./server.js";
+import { NodeRegistry } from "./dispatch.js";
 import { generateNodeKeypair } from "./attest.js";
 import { buildPayoutPlan, recordPlannedPayouts, runTreasurer } from "./treasurer.js";
 import { finalizePayout, existingPayoutStatus } from "./ledger.js";
@@ -32,6 +33,7 @@ async function cmdServe(): Promise<void> {
   const db = openDb(env.DATABASE_PATH);
   const keeperhub = new KeeperHubClient(env);
   const houseNodeKeypair = await loadOrCreateHouseKeypair();
+  const registry = new NodeRegistry(db);
 
   const app = buildServer({
     env,
@@ -40,9 +42,12 @@ async function cmdServe(): Promise<void> {
     keeperhub,
     houseNodeKeypair,
     credentialsPath: env.CLAUDE_CREDENTIALS_PATH,
+    registry,
   });
 
-  startServer(app, env.PORT);
+  const httpServer = startServer(app, env.PORT);
+  attachNodeServer(httpServer, registry, db);
+  console.log(`provider nodes dial ws://localhost:${env.PORT}/node`);
 }
 
 async function cmdDoctor(): Promise<void> {
@@ -124,6 +129,36 @@ async function cmdTreasurer(): Promise<void> {
   }
 }
 
+function argValue(flag: string, fallback: string): string {
+  const arg = process.argv.find((a) => a.startsWith(`${flag}=`));
+  return arg ? arg.slice(flag.length + 1) : fallback;
+}
+
+async function cmdNode(): Promise<void> {
+  const env = loadEnv();
+  const { runNode } = await import("./node/agent.js");
+
+  const wallet = argValue("--wallet", process.env.CONSUMER_TEST_ADDRESS ?? "");
+  if (!wallet) {
+    console.error("idleproxy node: --wallet=0x... is required");
+    process.exit(1);
+  }
+
+  await runNode({
+    routerWsUrl: env.ROUTER_WS_URL,
+    wallet,
+    adapter: "claude-code",
+    models: argValue("--models", "sonnet,opus,haiku").split(","),
+    credentialsPath: env.CLAUDE_CREDENTIALS_PATH,
+    dailyUsdCap: Number(argValue("--daily-usd-cap", "5")),
+    dailyRequestCap: Number(argValue("--daily-request-cap", "500")),
+    maxConcurrency: Number(argValue("--max-concurrency", "1")),
+    reserveFraction: Number(argValue("--reserve-fraction", "0.2")),
+    keyPath: argValue("--key-path", "./idleproxy-node.key"),
+    usageLogPath: argValue("--usage-log", "./usage.jsonl"),
+  });
+}
+
 async function main(): Promise<void> {
   const [, , cmd] = process.argv;
   switch (cmd) {
@@ -134,8 +169,8 @@ async function main(): Promise<void> {
       await cmdDoctor();
       break;
     case "node":
-      console.error("idleproxy node: not yet implemented in this build");
-      process.exit(1);
+      await cmdNode();
+      break;
     case "treasurer":
       await cmdTreasurer();
       break;
