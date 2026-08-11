@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { loadEnv, resolveChainProfile } from "./config.js";
 import { openDb } from "./db.js";
 import { KeeperHubClient } from "./keeperhub.js";
