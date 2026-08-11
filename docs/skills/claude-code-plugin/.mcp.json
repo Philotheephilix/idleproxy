@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "keeperhub": {
-      "type": "http",
-      "url": "https://app.keeperhub.com/mcp"
-    }
-  }
-}

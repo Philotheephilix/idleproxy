@@ -12,12 +12,9 @@ test-USDC.
 
 **Relaying your own subscription like this likely violates your provider's resale terms.** This
 demo runs on the team's own accounts, at the team's own risk. What's submitted here is the metering
-and settlement rail — backend-agnostic, disclosed to every provider before they connect (see
-[`docs/provider-disclosure.md`](./docs/provider-disclosure.md)). Full reasoning in
-[`SPEC.md` §12](./SPEC.md#12-what-honestly-cannot-work).
+and settlement rail — backend-agnostic, disclosed to every provider before they connect.
 
-Built for the KeeperHub "Agents Onchain" hackathon. Full design: [`SPEC.md`](./SPEC.md). Build log
-and every real transaction: [`PLAN.md`](./PLAN.md), [`docs/tx-links.md`](./docs/tx-links.md).
+Built for the KeeperHub "Agents Onchain" hackathon.
 
 ## Architecture
 
@@ -43,8 +40,7 @@ CONSUMER                              ROUTER (idleproxy serve)                 P
 ```
 
 The **treasurer** is a real Claude Code agent with the KeeperHub MCP server attached — it calls
-`execute_workflow` + `get_execution` to run payouts, not a cron job pretending to be one. See
-[`SPEC.md` §3](./SPEC.md#3-actors).
+`execute_workflow` + `get_execution` to run payouts, not a cron job pretending to be one.
 
 ## KeeperHub surfaces used
 
@@ -62,7 +58,7 @@ action, and `code/run-code` all return `upgrade_required` on this org's tier —
 three. No KeeperHub action can make an outbound HTTP call on this plan, which is why the Solvency
 Watchdog's "alert" is KeeperHub's own Executions API rather than a push notification, and why the
 settlement-scheduling hook is driven by `idleproxy treasurer` rather than a KeeperHub Schedule
-trigger. Full trail: [`docs/tx-links.md`](./docs/tx-links.md).
+trigger.
 
 ## Install — contribute your idle Claude capacity
 
@@ -136,7 +132,7 @@ hackathon posture.
 
 ## What honestly cannot work
 
-Stated plainly, in full in [`SPEC.md` §12](./SPEC.md#12-what-honestly-cannot-work):
+Stated plainly:
 
 - **Real economic value.** Testnet units are worthless. This proves a mechanism, not an economy.
 - **Model-identity proof.** Without a TEE, a provider's self-reported model is a signed claim, not
@@ -152,9 +148,8 @@ Stated plainly, in full in [`SPEC.md` §12](./SPEC.md#12-what-honestly-cannot-wo
 The backend is one `package.json`, one `tsconfig.json`, one SQLite file. Router, provider node,
 treasurer, and the bounty demo are subcommands of one binary
 (`idleproxy serve | node | treasurer | doctor | facilitator-demo`) — it serves no HTML, pure API +
-WebSocket. Full rationale: [`SPEC.md` §4](./SPEC.md#4-repository-layout--monolith). The dashboard UI
-in `web/` is deliberately a separate deployable (own `package.json`, Next.js build step) so it can be
-hosted anywhere and talk to any router over its REST API.
+WebSocket. The dashboard UI in `web/` is deliberately a separate deployable (own `package.json`,
+Next.js build step) so it can be hosted anywhere and talk to any router over its REST API.
 
 ## Bounty: being your own x402 facilitator
 
@@ -163,5 +158,4 @@ npx tsx src/cli.ts facilitator-demo
 ```
 
 Zero funding, zero setup: generates a throwaway wallet, signs a zero-value EIP-3009 authorization,
-settles it through KeeperHub, prints a real transaction link. Tutorial:
-[`docs/bounty/x402-facilitator.md`](./docs/bounty/x402-facilitator.md).
+settles it through KeeperHub, prints a real transaction link.
