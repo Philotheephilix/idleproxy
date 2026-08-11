@@ -87,7 +87,7 @@ export class NodeRegistry {
       .prepare(
         `INSERT INTO nodes (id, provider_id, adapter, pubkey, status, daily_usd_cap_micros, daily_request_cap, max_concurrency, reserve_fraction, last_heartbeat_at, created_at)
          VALUES (?, ?, ?, ?, 'online', 0, 0, 1, 0.2, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET status = 'online', pubkey = excluded.pubkey, last_heartbeat_at = excluded.last_heartbeat_at`,
+         ON CONFLICT(id) DO UPDATE SET status = 'online', adapter = excluded.adapter, pubkey = excluded.pubkey, last_heartbeat_at = excluded.last_heartbeat_at`,
       )
       .run(node.nodeId, node.providerId, node.adapter, node.pubkey, Date.now(), Date.now());
   }
