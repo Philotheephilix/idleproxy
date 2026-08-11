@@ -18,11 +18,11 @@ services:
       - "traefik.http.routers.idleproxy-router-http.entrypoints=http"
       - "traefik.http.routers.idleproxy-router-http.middlewares=idleproxy-router-https-redirect"
       - "traefik.http.routers.idleproxy-router-http.priority=100"
-      - "traefik.http.routers.idleproxy-router-http.rule=Host(`api.idleproxy.valanamal.xyz`)"
+      - "traefik.http.routers.idleproxy-router-http.rule=Host(`router.valanamal.xyz`)"
       - "traefik.http.routers.idleproxy-router-http.service=idleproxy-router"
       - "traefik.http.routers.idleproxy-router.entrypoints=https"
       - "traefik.http.routers.idleproxy-router.priority=100"
-      - "traefik.http.routers.idleproxy-router.rule=Host(`api.idleproxy.valanamal.xyz`)"
+      - "traefik.http.routers.idleproxy-router.rule=Host(`router.valanamal.xyz`)"
       - "traefik.http.routers.idleproxy-router.service=idleproxy-router"
       - "traefik.http.routers.idleproxy-router.tls=true"
       - "traefik.http.services.idleproxy-router.loadbalancer.server.port=8787"
@@ -31,6 +31,9 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_ROUTER_URL: https://router.valanamal.xyz
+        NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID}
     restart: unless-stopped
     env_file:
       - web/.env.production
