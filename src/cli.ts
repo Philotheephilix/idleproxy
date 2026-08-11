@@ -182,7 +182,7 @@ async function cmdNode(): Promise<void> {
   const tier1 = process.argv.includes("--tier1");
 
   await runNode({
-    routerWsUrl: env.ROUTER_WS_URL,
+    routerWsUrl: argValue("--router-ws-url", env.ROUTER_WS_URL),
     wallet,
     token,
     adapter: tier1 ? "claude-code-tools" : "claude-code",

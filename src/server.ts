@@ -759,8 +759,15 @@ export function buildServer(deps: ServerDeps): Hono {
     const nodeToken = randomBytes(24).toString("hex");
     db.prepare(`UPDATE providers SET node_token = ? WHERE id = ?`).run(nodeToken, providerId);
 
+    // The provider runs this command on their own machine, which is never
+    // the router's machine once the router is hosted remotely -- without
+    // pointing --router-ws-url at this router explicitly, cmdNode falls
+    // back to its ws://localhost:8787/node default and every remote
+    // provider's node fails to connect.
+    const routerWsUrl = env.BASE_URL.replace(/^http/, "ws") + "/node";
     const command =
       `npx idleproxy node --wallet=${auth.wallet} --token=${nodeToken} ` +
+      `--router-ws-url=${routerWsUrl} ` +
       `--daily-usd-cap=${dailyUsdCap} --daily-request-cap=${dailyRequestCap} ` +
       `--max-concurrency=${maxConcurrency} --reserve-fraction=${reserveFraction}`;
 
