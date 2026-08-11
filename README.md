@@ -64,21 +64,53 @@ Watchdog's "alert" is KeeperHub's own Executions API rather than a push notifica
 settlement-scheduling hook is driven by `idleproxy treasurer` rather than a KeeperHub Schedule
 trigger. Full trail: [`docs/tx-links.md`](./docs/tx-links.md).
 
-## Quickstart — provider
+## Install — contribute your idle Claude capacity
+
+No clone, no build, no config file. If a router is already running somewhere (see
+[Hosted instance](#hosted-instance) below), all you need is `npx` and a `claude` login already on
+your machine:
+
+1. Open the site (the hosted instance, or `http://localhost:8787` if you're running one yourself —
+   see [Run it yourself](#run-it-yourself) below).
+2. Click **Connect wallet** and sign the sign-in message. Any injected wallet (MetaMask, Coinbase
+   Wallet, etc.) or Privy's email flow works.
+3. Read and check the disclosure box. Also check the Tier 1 box if you want to opt into the
+   containerized, tool-enabled tier (needs Docker on your machine) — otherwise the default tool-free
+   tier is fine.
+4. Set your caps (daily USD cap, daily request cap, max concurrency, reserve fraction) and click
+   **Get node command**.
+5. Copy the generated command and run it in a terminal on the machine you're already logged into
+   `claude` on:
+   ```bash
+   npx idleproxy node --wallet=0x... --token=... --daily-usd-cap=5 --daily-request-cap=500 --max-concurrency=1 --reserve-fraction=0.2
+   ```
+   `npx` fetches the CLI on demand — nothing to install ahead of time. Add `--tier1` to the command
+   yourself if you checked the Tier 1 box.
+6. That's it — the node shows **online** on `/dashboard`, where you can watch accrued balance, job
+   history, and payout history live, and hit **Kill switch** any time to stop earning.
+
+A fresh wallet reaches an earning node in under a minute. The OAuth token in your `claude` login is
+never read, parsed, or transmitted — a copy of the credential file is dropped into a throwaway `HOME`
+and the binary is started there.
+
+## Hosted instance
+
+`https://idleproxy.valanamal.xyz` (web/dashboard) talking to `https://api.idleproxy.valanamal.xyz`
+(router). Base Sepolia testnet — see [What honestly cannot work](#what-honestly-cannot-work).
+
+## Run it yourself
 
 ```bash
 git clone <this repo> && cd idleproxy
 npm install
 cp .env.example .env   # fill in KEEPERHUB_API_KEY, KEEPERHUB_PAYOUT_WORKFLOW_ID
 npx tsx src/cli.ts doctor    # checks claude, docker, KeeperHub, chain — all before you connect anything
-npx tsx src/cli.ts serve     # router, on :8787 by default
+npx tsx src/cli.ts serve     # router, on :8787 by default (pure API + WS, no UI served)
 ```
 
-Then open `http://localhost:8787`: connect wallet → sign → accept disclosure → set caps → copy the
-generated `npx idleproxy node --wallet=... --token=...` command → run it. A fresh wallet reaches an
-earning node in under a minute, with no config file hand-edited. Add `--tier1` to run the
-containerized, tool-enabled tier instead of the tool-free default — it needs Docker and its own
-disclosure opt-in.
+The provider/consumer dashboard is a separate Next.js app in `web/` — `cd web && npm install && npm
+run dev` with `NEXT_PUBLIC_ROUTER_URL` pointed at your router. Talk to the router directly with `curl` if you'd
+rather skip the UI entirely — see Quickstart — consumer below.
 
 ## Quickstart — consumer
 
@@ -117,10 +149,12 @@ Stated plainly, in full in [`SPEC.md` §12](./SPEC.md#12-what-honestly-cannot-wo
 
 ## Monolith
 
-One `package.json`, one `tsconfig.json`, one SQLite file, no frontend build step, 18 source files.
-Router, provider node, treasurer, and the bounty demo are subcommands of one binary
-(`idleproxy serve | node | treasurer | doctor | facilitator-demo`). Full rationale:
-[`SPEC.md` §4](./SPEC.md#4-repository-layout--monolith).
+The backend is one `package.json`, one `tsconfig.json`, one SQLite file. Router, provider node,
+treasurer, and the bounty demo are subcommands of one binary
+(`idleproxy serve | node | treasurer | doctor | facilitator-demo`) — it serves no HTML, pure API +
+WebSocket. Full rationale: [`SPEC.md` §4](./SPEC.md#4-repository-layout--monolith). The dashboard UI
+in `web/` is deliberately a separate deployable (own `package.json`, Next.js build step) so it can be
+hosted anywhere and talk to any router over its REST API.
 
 ## Bounty: being your own x402 facilitator
 
