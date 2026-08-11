@@ -29,7 +29,7 @@
 - Consumes: nothing new.
 - Produces: every existing router endpoint remains reachable, now cross-origin.
 
-- [ ] **Step 1: Install `hono`'s cors helper import (already bundled with `hono`, no new package)**
+- [x] **Step 1: Install `hono`'s cors helper import (already bundled with `hono`, no new package)**
 
 Confirm it's importable:
 ```bash
@@ -37,7 +37,7 @@ node -e "console.log(require.resolve('hono/cors'))" 2>&1 || npx tsx -e "import('
 ```
 Expected: prints `['cors']` or a resolvable path — `hono/cors` ships inside the `hono` package already in `package.json`, no install needed.
 
-- [ ] **Step 2: Add the CORS middleware and remove static serving in `src/server.ts`**
+- [x] **Step 2: Add the CORS middleware and remove static serving in `src/server.ts`**
 
 Find the import block at the top of `src/server.ts` and add:
 ```typescript
@@ -69,19 +69,19 @@ Remove the now-unused import at the top of the file:
 import { serveStatic } from "@hono/node-server/serve-static";
 ```
 
-- [ ] **Step 3: Delete the old static UI files**
+- [x] **Step 3: Delete the old static UI files**
 
 ```bash
 rm -f public/index.html public/app.js public/style.css
 rmdir public 2>/dev/null || true
 ```
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run: `npx tsc -p tsconfig.json --noEmit`
 Expected: no output (clean).
 
-- [ ] **Step 5: Real test — boot the router, confirm CORS header present, confirm old static route is gone**
+- [x] **Step 5: Real test — boot the router, confirm CORS header present, confirm old static route is gone**
 
 ```bash
 fuser -k 8787/tcp 2>/dev/null; sleep 1
@@ -98,7 +98,7 @@ curl -s -o /dev/null -w "root path now: %{http_code}\n" http://localhost:8787/
 ```
 Expected: `200` for `/v1/models`, an `access-control-allow-origin: *` header on the OPTIONS preflight, and `404` for `/` (no more static index — this is the correct new behavior since the UI is no longer served here).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -129,7 +129,7 @@ EOF
 - Consumes: nothing.
 - Produces: `web/src/app/layout.tsx`, `web/src/app/page.tsx`, `web/src/app/globals.css`, `web/tailwind.config.ts`, `web/package.json` — the base every later task builds on.
 
-- [ ] **Step 1: Scaffold with create-next-app**
+- [x] **Step 1: Scaffold with create-next-app**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -137,7 +137,7 @@ npx create-next-app@latest web --typescript --tailwind --app --no-src-dir=false 
 ```
 Expected: `web/` created with `package.json`, `src/app/{layout.tsx,page.tsx,globals.css}`, `tailwind.config.ts`, `tsconfig.json`.
 
-- [ ] **Step 2: Install Privy and viem**
+- [x] **Step 2: Install Privy and viem**
 
 ```bash
 cd web
@@ -145,7 +145,7 @@ npm install @privy-io/react-auth viem
 ```
 Expected: both added to `web/package.json` dependencies.
 
-- [ ] **Step 3: Create env files**
+- [x] **Step 3: Create env files**
 
 Create `web/.env.local`:
 ```
@@ -159,7 +159,7 @@ NEXT_PUBLIC_ROUTER_URL=http://localhost:8787
 NEXT_PUBLIC_PRIVY_APP_ID=
 ```
 
-- [ ] **Step 4: Confirm `.env.local` is gitignored**
+- [x] **Step 4: Confirm `.env.local` is gitignored**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -167,7 +167,7 @@ git check-ignore -v web/.env.local || echo "NOT IGNORED - add web/.env.local to 
 ```
 Expected: `create-next-app` already writes `.env*.local` into `web/.gitignore` — this should print the ignore rule, not the warning. If it prints the warning, add `.env*.local` to `web/.gitignore` before continuing.
 
-- [ ] **Step 5: Real test — dev server boots**
+- [x] **Step 5: Real test — dev server boots**
 
 ```bash
 cd web
@@ -180,7 +180,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000
 ```
 Expected: `200`. Kill the dev server after confirming (`fuser -k 3000/tcp`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -207,7 +207,7 @@ EOF
 - Consumes: `process.env.NEXT_PUBLIC_PRIVY_APP_ID`.
 - Produces: `PrivyProviderWrapper` component wrapping `children`, used by every later page/component that calls `usePrivy()`/`useWallets()`.
 
-- [ ] **Step 1: Write `web/src/components/PrivyProviderWrapper.tsx`**
+- [x] **Step 1: Write `web/src/components/PrivyProviderWrapper.tsx`**
 
 ```typescript
 "use client";
@@ -234,7 +234,7 @@ export function PrivyProviderWrapper({ children }: { children: React.ReactNode }
 }
 ```
 
-- [ ] **Step 2: Wrap `web/src/app/layout.tsx` with it**
+- [x] **Step 2: Wrap `web/src/app/layout.tsx` with it**
 
 Replace the body of the default `RootLayout` in `web/src/app/layout.tsx` so `children` is wrapped:
 ```typescript
@@ -258,7 +258,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 ```bash
 cd web
@@ -266,7 +266,7 @@ npx tsc --noEmit
 ```
 Expected: no output. (This will fail if `NEXT_PUBLIC_PRIVY_APP_ID` is still the placeholder `REPLACE_ME` at *runtime*, but typecheck itself doesn't execute the throw — it only checks types, so this passes regardless of the env value.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -292,7 +292,7 @@ EOF
 - Consumes: `NEXT_PUBLIC_ROUTER_URL`.
 - Produces: `apiFetch(path: string, opts?: RequestInit): Promise<Response>`, `getSession(): string | null`, `setSession(token: string): void`, `clearSession(): void`. Every later component that talks to the router imports these.
 
-- [ ] **Step 1: Write `web/src/lib/api.ts`**
+- [x] **Step 1: Write `web/src/lib/api.ts`**
 
 ```typescript
 const ROUTER_URL = process.env.NEXT_PUBLIC_ROUTER_URL;
@@ -327,14 +327,14 @@ export async function apiFetch(path: string, opts: RequestInit = {}): Promise<Re
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 ```bash
 cd web && npx tsc --noEmit
 ```
 Expected: no output.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -355,14 +355,14 @@ git commit -m "feat: apiFetch helper + localStorage session (web/src/lib/api.ts)
 - Consumes: nothing (these are self-contained visual components).
 - Produces: whatever the fetched files actually export — **read each file's own prop types after fetching, don't assume**. Task 6 imports these.
 
-- [ ] **Step 1: Locate the fetch script**
+- [x] **Step 1: Locate the fetch script**
 
 ```bash
 find /home/ubuntu/.claude/plugins/cache/reactbits-dev-skill -name "rb-add.mjs"
 ```
 Expected: a path like `.../react-bits/<hash>/react-bits/scripts/rb-add.mjs`. Use that exact path in the next step.
 
-- [ ] **Step 2: Fetch all three components, TS+Tailwind variant, real network call**
+- [x] **Step 2: Fetch all three components, TS+Tailwind variant, real network call**
 
 ```bash
 cd /home/ubuntu/projects/declaude/web
@@ -370,11 +370,11 @@ node <path-from-step-1> DotGrid ShinyText TiltedCard --variant TS-TW --dest src/
 ```
 Expected: three (or more, if a component ships sibling files) real `.tsx` files written under `web/src/components/reactbits/`, plus a printed `npm install <deps>` line.
 
-- [ ] **Step 3: Install the printed dependencies**
+- [x] **Step 3: Install the printed dependencies**
 
 Run whatever `npm install ...` line Step 2 printed (per the skill, `DotGrid` needs `gsap`, `ShinyText` needs `motion`, `TiltedCard` needs `motion` — but install the *exact* line the script printed, not this guess, in case the registry has since changed).
 
-- [ ] **Step 4: Read each fetched file's actual props before using them**
+- [x] **Step 4: Read each fetched file's actual props before using them**
 
 ```bash
 head -40 web/src/components/reactbits/DotGrid.tsx
@@ -383,14 +383,14 @@ head -40 web/src/components/reactbits/TiltedCard.tsx
 ```
 Note the real prop names/types from each — Task 6 wires them up using what's actually there, not assumed defaults.
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 ```bash
 cd web && npx tsc --noEmit
 ```
 Expected: no output. If a `verbatimModuleSyntax` type-import error appears (per the react-bits skill's known gotcha), split the offending `import { X, type Y }` into a separate `import type { Y }` line in that fetched file.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -417,7 +417,7 @@ EOF
 - Consumes: `DotGrid`, `ShinyText`, `TiltedCard` from Task 5 (exact props read from the fetched files, not guessed).
 - Produces: the hero section markup — Task 7 (`WalletConnect`) mounts inside this page.
 
-- [ ] **Step 1: Write `web/src/components/FeatureCards.tsx`**
+- [x] **Step 1: Write `web/src/components/FeatureCards.tsx`**
 
 Use `TiltedCard` (imported from `./reactbits/TiltedCard`, props matching what Task 5 Step 4 found) to render this content — one card per KeeperHub surface, copied from `README.md`'s surfaces table:
 
@@ -452,7 +452,7 @@ export function FeatureCards() {
 }
 ```
 
-- [ ] **Step 2: Write the hero section in `web/src/app/page.tsx`**
+- [x] **Step 2: Write the hero section in `web/src/app/page.tsx`**
 
 ```typescript
 import DotGrid from "@/components/reactbits/DotGrid";
@@ -506,14 +506,14 @@ export function OnboardingFlow() {
 EOF
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 ```bash
 cd web && npx tsc --noEmit
 ```
 Expected: no output.
 
-- [ ] **Step 4: Real test — dev server renders the hero**
+- [x] **Step 4: Real test — dev server renders the hero**
 
 ```bash
 cd web
@@ -543,7 +543,7 @@ node test.mjs
 ```
 Expected: `heading visible: true`, `console errors: 0`. View `/tmp/webtest/hero.png` to visually confirm the `DotGrid` background and cards render (not blank/broken).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -570,7 +570,7 @@ EOF
 - Consumes: `usePrivy()`/`useWallets()` from `@privy-io/react-auth`, `apiFetch`/`setSession` from `web/src/lib/api.ts` (Task 4).
 - Produces: `WalletConnect` component; calls `onConnected(address: string)` prop once a session is established. Task 9 (`OnboardingFlow`) consumes this callback to advance to the disclosure step.
 
-- [ ] **Step 1: Write `web/src/components/WalletConnect.tsx`**
+- [x] **Step 1: Write `web/src/components/WalletConnect.tsx`**
 
 ```typescript
 "use client";
@@ -643,14 +643,14 @@ export function WalletConnect({ onConnected }: { onConnected: (address: string) 
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 ```bash
 cd web && npx tsc --noEmit
 ```
 Expected: no output. If `wallet.getEthereumProvider()` or the `useWallets()` shape differs from this sketch (Privy's API surface should be confirmed against the installed package's own type defs, not assumed), fix the actual method/property names using `node_modules/@privy-io/react-auth`'s shipped `.d.ts` files as the source of truth.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -679,7 +679,7 @@ EOF
 - Consumes: `apiFetch` (Task 4).
 - Produces: `DisclosureAccept({ onAccepted: () => void })`, `CapsForm({ onToken: (command: string) => void })`, `NodeCommand({ command: string })`. Task 9 sequences these three plus `WalletConnect`.
 
-- [ ] **Step 1: Write `web/src/components/DisclosureAccept.tsx`**
+- [x] **Step 1: Write `web/src/components/DisclosureAccept.tsx`**
 
 ```typescript
 "use client";
@@ -744,7 +744,7 @@ export function DisclosureAccept({ onAccepted }: { onAccepted: () => void }) {
 }
 ```
 
-- [ ] **Step 2: Write `web/src/components/CapsForm.tsx`**
+- [x] **Step 2: Write `web/src/components/CapsForm.tsx`**
 
 ```typescript
 "use client";
@@ -794,7 +794,7 @@ export function CapsForm({ onToken }: { onToken: (command: string) => void }) {
 }
 ```
 
-- [ ] **Step 3: Write `web/src/components/NodeCommand.tsx`**
+- [x] **Step 3: Write `web/src/components/NodeCommand.tsx`**
 
 ```typescript
 "use client";
@@ -818,14 +818,14 @@ export function NodeCommand({ command }: { command: string }) {
 }
 ```
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 ```bash
 cd web && npx tsc --noEmit
 ```
 Expected: no output.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -846,7 +846,7 @@ git commit -m "feat: DisclosureAccept, CapsForm, NodeCommand components"
 - Consumes: `WalletConnect` (Task 7), `DisclosureAccept`/`CapsForm`/`NodeCommand` (Task 8), `apiFetch`/`getSession`/`clearSession` (Task 4).
 - Produces: complete onboarding flow on `/`, complete dashboard on `/dashboard`.
 
-- [ ] **Step 1: Replace the `OnboardingFlow` stub**
+- [x] **Step 1: Replace the `OnboardingFlow` stub**
 
 ```typescript
 "use client";
@@ -881,7 +881,7 @@ export function OnboardingFlow() {
 }
 ```
 
-- [ ] **Step 2: Write the dashboard sub-components**
+- [x] **Step 2: Write the dashboard sub-components**
 
 `web/src/components/dashboard/NodesList.tsx`:
 ```typescript
@@ -966,7 +966,7 @@ export function KillSwitch({ onDone }: { onDone: () => void }) {
 }
 ```
 
-- [ ] **Step 3: Write `web/src/app/dashboard/page.tsx`**
+- [x] **Step 3: Write `web/src/app/dashboard/page.tsx`**
 
 ```typescript
 "use client";
@@ -1036,14 +1036,14 @@ export default function DashboardPage() {
 }
 ```
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 ```bash
 cd web && npx tsc --noEmit
 ```
 Expected: no output.
 
-- [ ] **Step 5: Real test — full flow through a real browser against the real router**
+- [x] **Step 5: Real test — full flow through a real browser against the real router**
 
 Ensure the router is running (Task 1 Step 5 left it up, or restart it), ensure `web/.env.local` has a real `NEXT_PUBLIC_PRIVY_APP_ID` filled in (this task cannot be meaningfully tested end-to-end without one — if it's still `REPLACE_ME`, stop here and get the real value before proceeding), then:
 
@@ -1057,7 +1057,7 @@ Write and run a Playwright script following the exact pattern already proven for
 
 If Privy's modal doesn't detect the injected `window.ethereum` as expected (a real risk flagged in the spec's Testing section, not proven yet): fall back to testing the post-connect flow by calling `setSession()` directly in the page context with a token obtained via a real `curl` SIWE flow first, and note explicitly in the commit message that full-flow Privy-modal browser coverage wasn't achieved, rather than claiming it was.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -1089,7 +1089,7 @@ EOF
 
 **Interfaces:** none new — this task verifies Tasks 1-9 against `docs/superpowers/specs/2026-08-11-nextjs-dashboard-design.md` line by line.
 
-- [ ] **Step 1: Walk the spec section by section, confirm each requirement has a corresponding, tested implementation**
+- [x] **Step 1: Walk the spec section by section, confirm each requirement has a corresponding, tested implementation**
 
 Check against `docs/superpowers/specs/2026-08-11-nextjs-dashboard-design.md`:
 - Architecture: `web/` is a pure REST client (no server components fetch from the router) — grep for any `fetch()` call outside a `"use client"` file.
@@ -1098,7 +1098,7 @@ Check against `docs/superpowers/specs/2026-08-11-nextjs-dashboard-design.md`:
 - Router change: confirm `public/` is actually deleted, not just unused.
 - Testing: confirm the full live E2E backend test suite (real paid `/v1/messages` call, real settlement, real Tier 1 dispatch) was re-run against the router per the spec's explicit requirement and the user's "run full live test again" instruction — this is a **repeat of tests already written earlier in this session**, re-run now to confirm the CORS/static-removal change in Task 1 didn't regress the backend. Use the same `e2e_chat.ts`/tier1 test patterns already proven; don't write new ones.
 
-- [ ] **Step 2: Run the full backend E2E suite one more time for real**
+- [x] **Step 2: Run the full backend E2E suite one more time for real**
 
 ```bash
 cd /home/ubuntu/projects/declaude
@@ -1109,11 +1109,11 @@ disown
 ```
 Wait for boot, then re-run a real paid `/v1/messages` call (same pattern as every prior real test in this session — sign an EIP-3009 authorization with `CONSUMER_TEST_PRIVATE_KEY`, hit `/v1/messages`, confirm `200` and a real settlement tx). Expected: identical behavior to every prior run in this session — the router's core money-moving logic wasn't touched, only CORS and static serving were added/removed.
 
-- [ ] **Step 3: Fix anything the gap check or the re-run surfaces, commit each fix separately**
+- [x] **Step 3: Fix anything the gap check or the re-run surfaces, commit each fix separately**
 
 Follow the same pattern used throughout this session: find a real discrepancy, fix it, verify with a real test, commit with an honest description of what was wrong and what the fix does.
 
-- [ ] **Step 4: Final commit noting the gap-check pass is complete**
+- [x] **Step 4: Final commit noting the gap-check pass is complete**
 
 ```bash
 git add -A
