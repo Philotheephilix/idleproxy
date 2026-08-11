@@ -296,14 +296,23 @@ export function buildServer(deps: ServerDeps): Hono {
       result = { ok: false, error: "no Tier 1 (tool-enabled) node currently online" };
       servingProviderId = HOUSE_PROVIDER_ID;
     } else {
-      result = await runTier0({
-        jobId,
-        prompt: promptText,
-        model: bareModel,
-        maxBudgetUsd: jobBudgetUsd(band),
-        credentialsPath,
-        timeoutMs: 90_000,
-      });
+      // House Tier-0 fallback needs a real `claude` login at credentialsPath
+      // on the router's own host -- not something a hosted router operator
+      // necessarily has (or wants to spend on anonymous traffic). Catch
+      // rather than let it crash the request: "no capacity" is a normal,
+      // expected outcome here, not a server bug.
+      try {
+        result = await runTier0({
+          jobId,
+          prompt: promptText,
+          model: bareModel,
+          maxBudgetUsd: jobBudgetUsd(band),
+          credentialsPath,
+          timeoutMs: 90_000,
+        });
+      } catch (err) {
+        result = { ok: false, error: `no node online and house fallback unavailable: ${err instanceof Error ? err.message : String(err)}` };
+      }
       servingProviderId = HOUSE_PROVIDER_ID;
     }
 
