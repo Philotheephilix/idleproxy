@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { getAddress, verifyMessage, type Address, type Hex } from "viem";
 import type Database from "better-sqlite3";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -138,6 +138,13 @@ export function buildServer(deps: ServerDeps): Hono {
   const app = new Hono();
 
   ensureHouseProvider(db);
+
+  // Wildcard for now (confirmed choice — docs/superpowers/specs/2026-08-11-
+  // nextjs-dashboard-design.md): the UI is hosted separately from this
+  // process, so the router needs to accept requests from wherever it ends
+  // up deployed. Tighten to a specific CORS_ORIGIN later if needed.
+  app.use("/api/*", cors());
+  app.use("/v1/*", cors());
 
   // --- Per-consumer rate limiting (PLAN.md 1.3, disclosed as "Partial" in
   // SPEC.md §7). Fixed window in memory — fine for a single-process
@@ -859,8 +866,6 @@ export function buildServer(deps: ServerDeps): Hono {
 
     return c.json({ events, jobs: recentJobs, payouts: recentPayouts, solvencyWatchdog });
   });
-
-  app.use("/*", serveStatic({ root: "./public" }));
 
   return app;
 }
