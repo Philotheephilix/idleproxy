@@ -1,50 +1,52 @@
 "use client";
 
-import TiltedCard from "./reactbits/TiltedCard/TiltedCard";
+import SpotlightCard from "./reactbits/SpotlightCard/SpotlightCard";
 
 const SURFACES = [
   {
+    kicker: "POST /api/execute/contract-call",
     title: "x402 settlement",
-    body: "POST /api/execute/contract-call — verify locally, settle via KeeperHub, so no transaction touches the chain outside it.",
+    body: "The router verifies the payment authorisation locally, then hands the transfer to KeeperHub to broadcast. No transaction touches the chain outside it.",
+    tone: "pay",
   },
   {
+    kicker: "Webhook workflow",
     title: "Payout workflow",
-    body: "Webhook trigger → Check Treasury Balance → Solvency Gate → Pay Provider. Solvency check and transfer live in KeeperHub, not application code.",
+    body: "Trigger → Check Treasury Balance → Solvency Gate → Pay Provider. The solvency check and the transfer both live in KeeperHub, not in application code.",
+    tone: "pay",
   },
   {
-    title: "Solvency Watchdog",
-    body: "Block trigger → Check Treasury Balance → Read USDC Decimals → Condition. Independent treasury monitoring.",
+    kicker: "Block trigger",
+    title: "Solvency watchdog",
+    body: "Check Treasury Balance → Read USDC Decimals → Condition, on every block. Treasury monitoring runs independently of the router being up.",
+    tone: "cap",
   },
   {
+    kicker: "MCP · kh_ header auth",
     title: "Treasurer agent",
-    body: "MCP server, kh_ header auth — execute_workflow + get_execution. A real Claude Code agent runs payouts, not a cron job.",
+    body: "execute_workflow and get_execution over MCP. A real Claude Code agent runs the payouts and reads back the executions — not a cron job.",
+    tone: "cap",
   },
-];
+] as const;
 
 export function FeatureCards() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto px-4">
+    <div className="grid gap-5 md:grid-cols-2">
       {SURFACES.map((s) => (
-        <TiltedCard
+        <SpotlightCard
           key={s.title}
-          imageSrc="/card-bg.svg"
-          altText={s.title}
-          containerHeight="220px"
-          containerWidth="100%"
-          imageHeight="220px"
-          imageWidth="100%"
-          scaleOnHover={1.03}
-          rotateAmplitude={8}
-          showMobileWarning={false}
-          showTooltip={false}
-          displayOverlayContent
-          overlayContent={
-            <div className="w-[320px] max-w-full h-[220px] flex flex-col justify-center p-6">
-              <h3 className="text-lg font-semibold text-teal-300">{s.title}</h3>
-              <p className="mt-2 text-sm text-gray-300">{s.body}</p>
-            </div>
-          }
-        />
+          className="rounded-2xl! border-line! bg-panel! p-7! transition-colors hover:border-line-2!"
+          spotlightColor={s.tone === "cap" ? "rgba(53, 224, 161, 0.12)" : "rgba(245, 178, 92, 0.12)"}
+        >
+          <span
+            className="font-mono text-[10.5px] tracking-widest uppercase"
+            style={{ color: s.tone === "cap" ? "var(--color-cap)" : "var(--color-pay)" }}
+          >
+            {s.kicker}
+          </span>
+          <h3 className="mt-3.5 font-display text-[19px] font-semibold tracking-tight text-fg">{s.title}</h3>
+          <p className="mt-2.5 text-[14px] leading-relaxed text-muted">{s.body}</p>
+        </SpotlightCard>
       ))}
     </div>
   );

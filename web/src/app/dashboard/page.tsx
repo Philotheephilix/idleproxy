@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, getSession } from "@/lib/api";
+import { SiteNav } from "@/components/SiteNav";
+import { SiteFooter } from "@/components/SiteFooter";
 import { NodesList } from "@/components/dashboard/NodesList";
 import { BalanceCard } from "@/components/dashboard/BalanceCard";
 import { JobsTable } from "@/components/dashboard/JobsTable";
@@ -38,28 +40,76 @@ export default function DashboardPage() {
     refresh();
   }, [router]);
 
-  if (!data) return <main className="min-h-screen bg-black text-white p-8">Loading...</main>;
+  if (!data) {
+    return (
+      <>
+        <SiteNav dashboard />
+        <main className="flex-1">
+          <div className="mx-auto max-w-[1000px] px-6 py-20">
+            <p className="eyebrow">Provider</p>
+            <div className="mt-6 h-8 w-56 animate-pulse rounded-md bg-elev" />
+            <div className="mt-8 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2">
+              <div className="h-32 animate-pulse bg-panel" />
+              <div className="h-32 animate-pulse bg-panel" />
+            </div>
+          </div>
+        </main>
+        <SiteFooter />
+      </>
+    );
+  }
+
+  const online = data.nodes.filter((n) => n.status === "online").length;
 
   return (
-    <main className="min-h-screen bg-black text-white p-8 max-w-3xl mx-auto space-y-8">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
-      <NodesList nodes={data.nodes} />
-      <div>
-        <h2 className="text-lg font-semibold mb-2">Accrued balance</h2>
-        <BalanceCard balance={data.balance} />
-      </div>
-      <div>
-        <h2 className="text-lg font-semibold mb-2">Recent jobs</h2>
-        <JobsTable jobs={data.jobs} />
-      </div>
-      <div>
-        <h2 className="text-lg font-semibold mb-2">Payout history</h2>
-        <PayoutsTable payouts={data.payouts} />
-      </div>
-      <div className="flex gap-3">
-        <KillSwitch onDone={refresh} />
-        <button onClick={refresh} className="rounded-md border border-gray-700 px-4 py-2 text-sm">Refresh</button>
-      </div>
-    </main>
+    <>
+      <SiteNav dashboard />
+
+      <main className="flex-1">
+        <div className="mx-auto max-w-[1000px] space-y-12 px-6 py-14 lg:py-16">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="eyebrow">Provider</p>
+              <h1 className="mt-3 font-display text-[32px] font-semibold tracking-[-0.02em]">Dashboard</h1>
+              <p className="mt-2 text-[14px] text-muted">
+                {online > 0
+                  ? `${online} node${online === 1 ? "" : "s"} online and taking work.`
+                  : "No nodes online — nothing is being dispatched to you."}
+              </p>
+            </div>
+            <button
+              onClick={refresh}
+              className="rounded-lg border border-line-2 bg-elev px-4 py-2.5 font-mono text-[12px] text-muted transition-colors hover:border-cap hover:text-cap"
+            >
+              Refresh
+            </button>
+          </div>
+
+          <section className="space-y-4">
+            <h2 className="eyebrow">Nodes</h2>
+            <NodesList nodes={data.nodes} />
+          </section>
+
+          <section className="space-y-4">
+            <h2 className="eyebrow">Balance</h2>
+            <BalanceCard balance={data.balance} />
+          </section>
+
+          <section className="space-y-4">
+            <h2 className="eyebrow">Recent jobs</h2>
+            <JobsTable jobs={data.jobs} />
+          </section>
+
+          <section className="space-y-4">
+            <h2 className="eyebrow">Payouts</h2>
+            <PayoutsTable payouts={data.payouts} />
+          </section>
+
+          <KillSwitch onDone={refresh} />
+        </div>
+      </main>
+
+      <SiteFooter />
+    </>
   );
 }

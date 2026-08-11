@@ -30,31 +30,55 @@ export function DisclosureAccept({ onAccepted }: { onAccepted: () => void }) {
   }
 
   return (
-    <div className="max-w-xl mx-auto">
-      <h2 className="text-xl font-semibold mb-3">Accept disclosure</h2>
-      <div className="max-h-64 overflow-y-auto border border-gray-800 rounded-md p-4 text-sm text-gray-300">
-        <ol className="list-decimal pl-4 space-y-2">
-          {points.map((p, i) => (
-            <li key={i}>{p}</li>
-          ))}
-        </ol>
-      </div>
-      <label className="flex items-start gap-2 mt-4 text-sm">
-        <input type="checkbox" checked={mainChecked} onChange={(e) => setMainChecked(e.target.checked)} className="mt-1" />
+    <section className="rounded-2xl border border-line bg-panel p-6 sm:p-7">
+      <p className="eyebrow">Step 02</p>
+      <h3 className="mt-2.5 font-display text-[20px] font-semibold tracking-tight text-fg">
+        Read what you are taking on
+      </h3>
+      <p className="mt-2 max-w-[58ch] text-[14px] leading-relaxed text-muted">
+        Every point below is a real exposure, not boilerplate. Read them before you accept.
+      </p>
+
+      <ol className="mt-5 max-h-64 list-none space-y-3 overflow-y-auto rounded-xl border border-line bg-elev p-5 text-[13.5px] leading-relaxed text-muted">
+        {points.map((p, i) => (
+          <li key={i} className="flex gap-3">
+            <span className="shrink-0 pt-0.5 font-mono text-[11px] text-dim">{String(i + 1).padStart(2, "0")}</span>
+            <span>{p}</span>
+          </li>
+        ))}
+      </ol>
+
+      <label className="mt-5 flex cursor-pointer items-start gap-3 text-[13.5px] text-fg">
+        <input
+          type="checkbox"
+          checked={mainChecked}
+          onChange={(e) => setMainChecked(e.target.checked)}
+          className="mt-0.5 size-4 shrink-0 accent-[var(--color-cap)]"
+        />
         I have read and accept the above.
       </label>
-      <label className="flex items-start gap-2 mt-2 text-sm">
-        <input type="checkbox" checked={tier1Checked} onChange={(e) => setTier1Checked(e.target.checked)} className="mt-1" />
-        Also enable Tier 1 (tool-enabled, containerized) — a materially larger exposure than the default tool-free tier.
+      <label className="mt-3 flex cursor-pointer items-start gap-3 text-[13.5px] text-muted">
+        <input
+          type="checkbox"
+          checked={tier1Checked}
+          onChange={(e) => setTier1Checked(e.target.checked)}
+          className="mt-0.5 size-4 shrink-0 accent-[var(--color-pay)]"
+        />
+        <span>
+          Also enable Tier 1 (tool-enabled, containerized) —{" "}
+          <span className="text-pay">a materially larger exposure</span> than the default tool-free
+          tier.
+        </span>
       </label>
+
       <button
         onClick={accept}
         disabled={!mainChecked}
-        className="mt-4 rounded-md bg-teal-400 px-4 py-2 font-semibold text-black disabled:opacity-50"
+        className="mt-6 rounded-xl bg-cap px-5 py-3 font-display text-[14.5px] font-semibold text-ink transition-transform hover:-translate-y-0.5 disabled:translate-y-0 disabled:bg-elev disabled:text-dim"
       >
         Accept and continue
       </button>
-      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
-    </div>
+      {error && <p className="mt-3 font-mono text-[12px] text-danger">{error}</p>}
+    </section>
   );
 }

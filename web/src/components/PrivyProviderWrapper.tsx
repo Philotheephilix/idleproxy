@@ -12,7 +12,9 @@ export function PrivyProviderWrapper({ children }: { children: React.ReactNode }
     <PrivyProvider
       appId={appId}
       config={{
-        appearance: { theme: "dark", accentColor: "#5eead4" },
+        // Matches --color-cap in globals.css so Privy's own modal reads as
+        // part of the site rather than a bolted-on third-party sheet.
+        appearance: { theme: "dark", accentColor: "#35e0a1" },
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" } },
       }}
     >

@@ -1,26 +1,337 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ---------------------------------------------------------------------------
+   IdleProxy visual language.
+
+   The product is a meter: idle compute on one side, paying demand on the
+   other, settlement onchain underneath. Two accents carry that meaning
+   everywhere on the site and are never used decoratively:
+
+     --color-cap  (mint)  = compute capacity / jobs
+     --color-pay  (amber) = money / onchain settlement
+
+   Surfaces are a cold near-black so both accents stay legible against them.
+--------------------------------------------------------------------------- */
+
+@theme {
+  --color-ink: #05070a;
+  --color-panel: #0a0e12;
+  --color-elev: #0e1419;
+  --color-line: #17222a;
+  --color-line-2: #26343d;
+  --color-fg: #e6eef1;
+  --color-muted: #8ba0a9;
+  --color-dim: #5c6f78;
+  --color-cap: #35e0a1;
+  --color-cap-deep: #0f3f30;
+  --color-pay: #f5b25c;
+  --color-pay-deep: #40301a;
+  --color-danger: #ff6b5e;
+
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+  background: var(--color-ink);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-ink);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-cap);
+  color: #04120c;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-cap);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* --- shared surface + type helpers ------------------------------------- */
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+
+.rule-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--color-line) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--color-line) 70%, transparent) 1px, transparent 1px);
+  background-size: 68px 68px;
+  mask-image: radial-gradient(120% 80% at 50% 0%, #000 0%, transparent 72%);
+}
+
+.hairline-y {
+  background-image: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in oklab, var(--color-line-2) 90%, transparent) 18%,
+    color-mix(in oklab, var(--color-line-2) 90%, transparent) 82%,
+    transparent
+  );
+}
+
+/* --- the settlement rail (hero diagram) --------------------------------- */
+
+/*
+  One 8s clock drives the whole diagram. Every moving part is the same
+  duration with a different animation-delay, so the beats stay in lockstep:
+
+    0.0s  request + x402 payment reaches the router
+    2.0s  router dispatches a job to an idle node
+    3.1s  the node returns the response
+    4.0s  the router hands settlement to KeeperHub
+    4.9s  KeeperHub broadcasts transferWithAuthorization
+    6.2s  the payout workflow pays the provider
+*/
+
+.wire {
+  fill: none;
+  stroke: var(--color-line-2);
+  stroke-width: 1;
+}
+
+.pulse {
+  fill: none;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-dasharray: 22 4000;
+  opacity: 0;
+  animation: pulse-fwd 8s linear infinite;
+}
+
+.pulse-rev {
+  animation-name: pulse-rev;
+}
+
+.pulse-cap {
+  stroke: var(--color-cap);
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--color-cap) 70%, transparent));
+}
+
+.pulse-pay {
+  stroke: var(--color-pay);
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--color-pay) 70%, transparent));
+}
+
+@keyframes pulse-fwd {
+  0% {
+    stroke-dashoffset: 22px;
+    opacity: 0;
+  }
+  1.5% {
+    opacity: 1;
+  }
+  12% {
+    opacity: 1;
+  }
+  15% {
+    stroke-dashoffset: calc(-1 * var(--len));
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: calc(-1 * var(--len));
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-rev {
+  0% {
+    stroke-dashoffset: calc(-1 * var(--len));
+    opacity: 0;
+  }
+  1.5% {
+    opacity: 1;
+  }
+  12% {
+    opacity: 1;
+  }
+  15% {
+    stroke-dashoffset: 22px;
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: 22px;
+    opacity: 0;
+  }
+}
+
+/* Capacity bar on the node that takes the job. */
+.cap-bar {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: cap-fill 8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes cap-fill {
+  0%,
+  27% {
+    transform: scaleX(0.1);
+  }
+  36%,
+  46% {
+    transform: scaleX(0.82);
+  }
+  58%,
+  100% {
+    transform: scaleX(0.1);
+  }
+}
+
+/* Panel highlight — the stage currently doing work. */
+.stage-lit {
+  animation: stage-lit 8s ease-in-out infinite;
+}
+
+@keyframes stage-lit {
+  0%,
+  2% {
+    opacity: 0;
+  }
+  6%,
+  20% {
+    opacity: 1;
+  }
+  25%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Newly confirmed block in the chain strip. */
+.block-new {
+  animation: block-confirm 8s ease-out infinite;
+}
+
+@keyframes block-confirm {
+  0%,
+  62% {
+    fill: var(--color-elev);
+    stroke: var(--color-line-2);
+  }
+  66%,
+  86% {
+    fill: var(--color-pay-deep);
+    stroke: var(--color-pay);
+  }
+  94%,
+  100% {
+    fill: var(--color-elev);
+    stroke: var(--color-line-2);
+  }
+}
+
+/* Caption under the diagram, lit while its stage runs. */
+.stage-caption {
+  animation: caption-lit 8s ease-in-out infinite;
+}
+
+@keyframes caption-lit {
+  0%,
+  1% {
+    color: var(--color-dim);
+    border-color: var(--color-line);
+  }
+  4%,
+  22% {
+    color: var(--color-fg);
+    border-color: currentColor;
+  }
+  26%,
+  100% {
+    color: var(--color-dim);
+    border-color: var(--color-line);
+  }
+}
+
+/* Slow drift on the ambient glow behind the hero. */
+.glow-drift {
+  animation: glow-drift 18s ease-in-out infinite alternate;
+}
+
+@keyframes glow-drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(3%, 2%, 0) scale(1.08);
+  }
+}
+
+/* Live dot in the eyebrow / status chips. */
+.live-dot {
+  animation: live-dot 2.4s ease-in-out infinite;
+}
+
+@keyframes live-dot {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-cap) 55%, transparent);
+  }
+  70% {
+    opacity: 0.75;
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .pulse,
+  .cap-bar,
+  .stage-lit,
+  .block-new,
+  .stage-caption,
+  .glow-drift,
+  .live-dot {
+    animation: none !important;
+  }
+
+  /* Static, fully-drawn wires read the same story without motion. */
+  .pulse {
+    opacity: 0.9;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+    stroke-width: 1.5;
+  }
+
+  .cap-bar {
+    transform: scaleX(0.55);
+  }
+
+  .stage-lit {
+    opacity: 0.6;
+  }
+
+  .stage-caption {
+    color: var(--color-muted);
+  }
+
+  /* React Bits' SplitText animates from opacity 0 via inline GSAP styles and
+     has no reduced-motion path of its own. An author !important rule outranks
+     those inline styles, so the headline is simply present. */
+  .split-parent .split-word,
+  .split-parent .split-char,
+  .split-parent .split-line {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
 }

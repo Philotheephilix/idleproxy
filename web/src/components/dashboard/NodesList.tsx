@@ -1,12 +1,34 @@
 export function NodesList({ nodes }: { nodes: Array<{ id: string; adapter: string; status: string }> }) {
-  if (nodes.length === 0) return <p className="text-sm text-gray-500">No nodes connected yet.</p>;
+  if (nodes.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-line bg-panel/50 p-6">
+        <p className="text-[14px] text-muted">No nodes connected yet.</p>
+        <p className="mt-1.5 text-[13px] text-dim">
+          Run the <span className="font-mono text-fg">npx idleproxy node</span> command on the machine
+          holding your subscription and it will appear here.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {nodes.map((n) => (
-        <span key={n.id} className={`rounded-full px-3 py-1 text-xs font-semibold ${n.status === "online" ? "bg-teal-900 text-teal-300" : "bg-gray-800 text-gray-400"}`}>
-          {n.adapter}: {n.status}
-        </span>
-      ))}
+    <div className="flex flex-wrap gap-2.5">
+      {nodes.map((n) => {
+        const online = n.status === "online";
+        return (
+          <span
+            key={n.id}
+            className={`inline-flex items-center gap-2.5 rounded-full border px-3.5 py-2 font-mono text-[12px] ${
+              online ? "border-cap/40 bg-cap-deep/40 text-cap" : "border-line bg-elev text-dim"
+            }`}
+          >
+            <span className={`size-1.5 rounded-full ${online ? "live-dot bg-cap" : "bg-dim"}`} />
+            {n.adapter}
+            <span className="text-dim">·</span>
+            {n.status}
+          </span>
+        );
+      })}
     </div>
   );
 }

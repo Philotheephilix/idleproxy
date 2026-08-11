@@ -58,16 +58,25 @@ export function WalletConnect({ onConnected }: { onConnected: (address: string) 
   }, [authenticated, walletsReady, wallets, onConnected]);
 
   return (
-    <div>
+    <section className="rounded-2xl border border-line bg-panel p-6 sm:p-7">
+      <p className="eyebrow">Step 01</p>
+      <h3 className="mt-2.5 font-display text-[20px] font-semibold tracking-tight text-fg">
+        Connect the wallet you want paid to
+      </h3>
+      <p className="mt-2 max-w-[58ch] text-[14px] leading-relaxed text-muted">
+        You sign a message to prove you hold the address. Payouts go to this address and nowhere
+        else.
+      </p>
+
       <button
         onClick={() => login()}
         disabled={!ready || authenticated}
-        className="rounded-md bg-teal-400 px-4 py-2 font-semibold text-black disabled:opacity-50"
+        className="mt-5 rounded-xl bg-cap px-5 py-3 font-display text-[14.5px] font-semibold text-ink transition-transform hover:-translate-y-0.5 disabled:translate-y-0 disabled:bg-elev disabled:text-dim disabled:shadow-none"
       >
         {authenticated ? "Connected" : "Connect wallet"}
       </button>
-      {status && <p className="mt-2 text-sm text-gray-400">{status}</p>}
-      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
-    </div>
+      {status && <p className="mt-3 font-mono text-[12px] break-all text-muted">{status}</p>}
+      {error && <p className="mt-3 font-mono text-[12px] text-danger">{error}</p>}
+    </section>
   );
 }
