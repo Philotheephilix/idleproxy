@@ -5,6 +5,7 @@ dist/
 *.db-wal
 *.db-shm
 .env
+.env.production
 usage.jsonl
 *.log
 tmp/

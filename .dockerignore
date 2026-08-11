@@ -1,0 +1,14 @@
+node_modules
+dist
+web
+docs
+.git
+*.db
+*.db-shm
+*.db-wal
+*.log
+usage.jsonl
+idleproxy-node.key
+idleproxy-house.key
+.env
+.env.local

@@ -1,0 +1,61 @@
+services:
+  router:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    volumes:
+      - router-data:/app/data
+    networks:
+      - coolify
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=coolify"
+      - "traefik.http.middlewares.idleproxy-router-https-redirect.redirectscheme.permanent=true"
+      - "traefik.http.middlewares.idleproxy-router-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.idleproxy-router-http.entrypoints=http"
+      - "traefik.http.routers.idleproxy-router-http.middlewares=idleproxy-router-https-redirect"
+      - "traefik.http.routers.idleproxy-router-http.priority=100"
+      - "traefik.http.routers.idleproxy-router-http.rule=Host(`api.idleproxy.valanamal.xyz`)"
+      - "traefik.http.routers.idleproxy-router-http.service=idleproxy-router"
+      - "traefik.http.routers.idleproxy-router.entrypoints=https"
+      - "traefik.http.routers.idleproxy-router.priority=100"
+      - "traefik.http.routers.idleproxy-router.rule=Host(`api.idleproxy.valanamal.xyz`)"
+      - "traefik.http.routers.idleproxy-router.service=idleproxy-router"
+      - "traefik.http.routers.idleproxy-router.tls=true"
+      - "traefik.http.services.idleproxy-router.loadbalancer.server.port=8787"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - web/.env.production
+    networks:
+      - coolify
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=coolify"
+      - "traefik.http.middlewares.idleproxy-web-https-redirect.redirectscheme.permanent=true"
+      - "traefik.http.middlewares.idleproxy-web-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.idleproxy-web-http.entrypoints=http"
+      - "traefik.http.routers.idleproxy-web-http.middlewares=idleproxy-web-https-redirect"
+      - "traefik.http.routers.idleproxy-web-http.priority=100"
+      - "traefik.http.routers.idleproxy-web-http.rule=Host(`idleproxy.valanamal.xyz`)"
+      - "traefik.http.routers.idleproxy-web-http.service=idleproxy-web"
+      - "traefik.http.routers.idleproxy-web.entrypoints=https"
+      - "traefik.http.routers.idleproxy-web.priority=100"
+      - "traefik.http.routers.idleproxy-web.rule=Host(`idleproxy.valanamal.xyz`)"
+      - "traefik.http.routers.idleproxy-web.service=idleproxy-web"
+      - "traefik.http.routers.idleproxy-web.tls=true"
+      - "traefik.http.services.idleproxy-web.loadbalancer.server.port=3000"
+
+networks:
+  coolify:
+    external: true
+
+volumes:
+  router-data:
