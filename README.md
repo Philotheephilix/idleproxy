@@ -91,7 +91,7 @@ and the binary is started there.
 
 ## Hosted instance
 
-`https://idleproxy.valanamal.xyz` (web/dashboard) talking to `https://router.valanamal.xyz`
+`https://idleproxy-web.vercel.app` (web/dashboard) talking to `https://router.valanamal.xyz`
 (router). Base Sepolia testnet — see [What honestly cannot work](#what-honestly-cannot-work).
 
 ## Run it yourself
