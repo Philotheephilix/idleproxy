@@ -135,10 +135,9 @@ export default function TryPage() {
             </h1>
 
             <p className="mt-6 max-w-[64ch] text-[16px] leading-relaxed text-muted">
-              This is the client side of the same endpoint an SDK would hit. Ask the router for a
-              completion, get a 402 back with a price, sign a USDC spend authorization for exactly
-              that amount, and replay. The response comes from a real provider node and the payment
-              is broadcast onchain by KeeperHub before you see a word of it.
+              Ask the router for a completion, get a 402 back with a price, sign a USDC spend
+              authorization for exactly that amount, and replay. The response comes from a real
+              provider node; KeeperHub broadcasts the payment onchain before you see a word of it.
             </p>
 
             <ul className="mt-8 flex flex-wrap gap-x-7 gap-y-2">
@@ -166,9 +165,8 @@ export default function TryPage() {
                 Connect a wallet holding test USDC
               </h2>
               <p className="mt-2 max-w-[58ch] text-[14px] leading-relaxed text-muted">
-                Nothing is signed in and no session is created. The wallet is here to authorize a
-                single payment of the quoted amount, and that authorization expires unused if the
-                call never happens.
+                The wallet only authorizes a single payment of the quoted amount, and that
+                authorization expires unused if the call never happens.
               </p>
 
               {wallet ? (
@@ -196,7 +194,7 @@ export default function TryPage() {
               </h2>
               <p className="mt-2 max-w-[58ch] text-[14px] leading-relaxed text-muted">
                 Price is set by the <code className="font-mono text-[13px] text-fg">max_tokens</code>{" "}
-                ceiling, not by what comes back, so you know the cost before anything runs.
+                ceiling, not by what comes back — so you know the cost before anything runs.
               </p>
 
               <textarea
@@ -358,9 +356,8 @@ export default function TryPage() {
               </section>
 
               <p className="mt-4 text-[12.5px] leading-relaxed text-dim">
-                Signing costs no gas and moves nothing on its own. The router verifies the
-                authorization, dispatches the job, and only then hands it to KeeperHub to broadcast —
-                a call that never runs is never charged.
+                Signing costs no gas and moves nothing on its own. The router only hands the payment
+                to KeeperHub once the job is dispatched — a call that never runs is never charged.
               </p>
 
               <p className="mt-4 text-[12.5px] leading-relaxed text-dim">
@@ -404,7 +401,7 @@ function FailurePanel({ failure }: { failure: Failure }) {
   const copy: Record<string, { title: string; body: string; tone: "danger" | "muted" }> = {
     no_capacity: {
       title: "No provider capacity right now",
-      body: "No provider node is connected to take this job at the moment. This is a live testnet network of real machines, so capacity comes and goes — nothing was paid, and the authorization you signed simply expires. Try again shortly.",
+      body: "No provider node is free to take this job right now. Nothing was paid — the authorization you signed simply expires. Try again shortly.",
       tone: "muted",
     },
     rejected: {
@@ -414,7 +411,7 @@ function FailurePanel({ failure }: { failure: Failure }) {
     },
     settlement: {
       title: "Payment could not be settled",
-      body: "The router accepted the authorization but the onchain settlement failed — most often a wallet without enough test USDC to cover the quote. Check the balance of the connected address on Base Sepolia and try again.",
+      body: "The router accepted the authorization but the onchain settlement failed — most often a wallet without enough test USDC to cover the quote. Check the connected address on Base Sepolia and try again.",
       tone: "danger",
     },
     payment: {

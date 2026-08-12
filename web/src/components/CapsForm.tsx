@@ -35,8 +35,8 @@ export function CapsForm({ onToken }: { onToken: (command: string) => void }) {
         Set the ceiling you are comfortable with
       </h3>
       <p className="mt-2 max-w-[58ch] text-[14px] leading-relaxed text-muted">
-        The node stops taking work when any of these is hit. You can change them by restarting the
-        node with different flags.
+        The node stops taking work when any of these is hit. Restart it with different flags to
+        change them.
       </p>
 
       <div className="mt-6 grid gap-5 sm:grid-cols-2">

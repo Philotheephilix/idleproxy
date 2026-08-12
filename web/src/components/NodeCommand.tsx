@@ -20,7 +20,7 @@ export function NodeCommand({ command }: { command: string }) {
         Run this on the machine with your claude login
       </h3>
       <p className="mt-2 max-w-[58ch] text-[14px] leading-relaxed text-muted">
-        The node registers itself and starts reporting idle capacity. The token in this command is a
+        The node registers and starts reporting idle capacity. The token in this command is a
         credential — treat it like a password.
       </p>
 

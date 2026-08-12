@@ -13,17 +13,17 @@ const STEPS = [
   {
     n: "01",
     title: "You run one command",
-    body: "npx idleproxy node connects your machine over a websocket and reports itself idle. Your claude login is read locally and never transmitted — the router only ever sees a prompt going in and a response coming out.",
+    body: "npx idleproxy node reports your machine idle. Your claude login is read locally and never transmitted — the router sees a prompt in and a response out.",
   },
   {
     n: "02",
     title: "The router meters demand",
-    body: "Clients pay before anything runs. The router verifies the x402 payment, checks your daily caps and reserve fraction, picks an idle node, and records the job with its model, band and cost.",
+    body: "Clients pay before anything runs. The router verifies the x402 payment, checks your caps and reserve, picks an idle node and records the job.",
   },
   {
     n: "03",
     title: "KeeperHub settles both ways",
-    body: "KeeperHub broadcasts the transferWithAuthorization for the payment, and a separate payout workflow checks treasury solvency before paying providers out. No transaction is signed by application code.",
+    body: "KeeperHub broadcasts the transferWithAuthorization in, and a solvency-gated workflow pays providers out. Application code signs nothing.",
   },
 ];
 
@@ -87,8 +87,7 @@ export default function Home() {
               </h1>
 
               <p className="mt-6 max-w-[46ch] text-[16px] leading-relaxed text-muted">
-                IdleProxy meters that capacity out to clients that pay per call. The router only ever
-                sees a prompt going in and a response coming out — every call is priced in USDC and
+                IdleProxy meters that capacity out to clients that pay per call — priced in USDC,
                 settled onchain through KeeperHub.
               </p>
 
@@ -112,9 +111,9 @@ export default function Home() {
               </ul>
 
               <p className="mt-8 max-w-[46ch] border-l-2 border-pay/50 pl-4 text-[12.5px] leading-relaxed text-dim">
-                Relaying your own subscription like this likely violates your provider&apos;s resale
-                terms. This runs on the team&apos;s own accounts, on Base Sepolia testnet, at the
-                team&apos;s own risk.
+                Relaying your own subscription likely violates your provider&apos;s resale terms. This
+                runs on the team&apos;s own accounts, on Base Sepolia testnet, at the team&apos;s own
+                risk.
               </p>
             </div>
 
@@ -152,9 +151,8 @@ export default function Home() {
                   Flat bands, paid before generation.
                 </h3>
                 <p className="mt-3 text-[14.5px] leading-relaxed text-muted">
-                  Price is fixed by the <code className="font-mono text-[13px] text-fg">max_tokens</code> ceiling
-                  the client asks for, not by what the model happens to emit. You keep 80% of the band;
-                  the rest is protocol fee.
+                  Price is fixed by the <code className="font-mono text-[13px] text-fg">max_tokens</code> ceiling,
+                  not by what the model emits. You keep 80% of the band; the rest is protocol fee.
                 </p>
 
                 <table className="mt-7 w-full text-left font-mono text-[13px]">
@@ -185,8 +183,8 @@ export default function Home() {
                   An Anthropic-shaped endpoint that charges at the door.
                 </h3>
                 <p className="mt-3 max-w-[60ch] text-[14.5px] leading-relaxed text-muted">
-                  Clients point an existing SDK at the router. The first call comes back 402 with an
-                  x402 quote; pay it and replay, or top up a prepaid key once and skip the handshake.
+                  Point an existing SDK at the router. The first call returns a 402 with an x402
+                  quote — pay and replay, or top up a prepaid key and skip the handshake.
                 </p>
 
                 <div className="mt-7 overflow-hidden rounded-xl border border-line bg-panel">
@@ -228,10 +226,6 @@ export default function Home() {
               <h2 className="mt-4 font-display text-[30px] leading-tight font-semibold tracking-[-0.02em] sm:text-[36px]">
                 Four steps. The last one is a command.
               </h2>
-              <p className="mt-4 text-[15px] leading-relaxed text-muted">
-                Connect the wallet you want paid to, accept the disclosure, set the caps you are
-                comfortable with, then run the command on the machine that holds the subscription.
-              </p>
             </div>
 
             <div className="mt-12">
@@ -249,8 +243,8 @@ export default function Home() {
                 Settlement is not application code.
               </h2>
               <p className="mt-4 text-[15px] leading-relaxed text-muted">
-                Every transaction that moves USDC — the payment in and the payout out — is broadcast
-                by a KeeperHub workflow. The router holds no signing key for the treasury.
+                Every USDC transfer, in and out, is broadcast by a KeeperHub workflow. The router
+                holds no signing key for the treasury.
               </p>
             </div>
 
