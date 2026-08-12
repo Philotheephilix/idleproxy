@@ -790,7 +790,16 @@ export function buildServer(deps: ServerDeps): Hono {
     const providerId = upsertProviderByWallet(db, auth.wallet);
     const provider = db.prepare(`SELECT * FROM providers WHERE id = ?`).get(providerId);
     const balance = db.prepare(`SELECT * FROM provider_balances WHERE provider_id = ?`).get(providerId);
-    const nodes = db.prepare(`SELECT id, adapter, status, last_heartbeat_at FROM nodes WHERE provider_id = ?`).all(providerId);
+    // A node's DB row can say 'online' after an unclean disconnect (process
+    // killed, network drop) that never fired the WS close handler --
+    // registry.list() is the actual live truth (only real, currently-open
+    // connections), so cross-check against it rather than trusting the
+    // possibly-stale DB column for what the dashboard displays.
+    const liveNodeIds = new Set(registry.list().map((n) => n.nodeId));
+    const nodes = (db.prepare(`SELECT id, adapter, status, last_heartbeat_at FROM nodes WHERE provider_id = ?`).all(providerId) as Array<{ id: string; adapter: string; status: string; last_heartbeat_at: number }>).map((n) => ({
+      ...n,
+      status: liveNodeIds.has(n.id) ? n.status : "offline",
+    }));
     const jobs = db
       .prepare(`SELECT id, model, band, status, cost_usd_micros, created_at FROM jobs WHERE node_id IN (SELECT id FROM nodes WHERE provider_id = ?) ORDER BY created_at DESC LIMIT 20`)
       .all(providerId);
