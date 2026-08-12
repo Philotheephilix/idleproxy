@@ -25,6 +25,7 @@ services:
       - "traefik.http.routers.idleproxy-router.rule=Host(`router.valanamal.xyz`)"
       - "traefik.http.routers.idleproxy-router.service=idleproxy-router"
       - "traefik.http.routers.idleproxy-router.tls=true"
+      - "traefik.http.routers.idleproxy-router.tls.certresolver=letsencrypt"
       - "traefik.http.services.idleproxy-router.loadbalancer.server.port=8787"
 
 networks:
