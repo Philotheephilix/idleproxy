@@ -9,10 +9,6 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
-  // Self-contained production server bundle for the Docker image -- copies
-  // only the traced dependency subset into .next/standalone instead of
-  // shipping full node_modules.
-  output: "standalone",
 };
 
 export default nextConfig;
