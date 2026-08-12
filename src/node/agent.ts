@@ -140,13 +140,18 @@ export async function runNode(cfg: NodeConfig): Promise<void> {
           pubkey: keypair.publicKeyHex,
         }),
       );
-      const heartbeat = setInterval(() => {
+      const sendHeartbeat = () => {
         if (ws.readyState !== WebSocket.OPEN) return;
         const cap = caps.capacity();
         const capacityByModel: Record<string, unknown> = {};
         for (const m of cfg.models) capacityByModel[m] = cap;
         ws.send(JSON.stringify({ type: "heartbeat", capacity: capacityByModel }));
-      }, 15_000);
+      };
+      // Fire one immediately -- setInterval alone leaves a freshly-connected
+      // node with no reported capacity (and so dispatch-invisible, despite
+      // showing "online") for up to the full interval period.
+      sendHeartbeat();
+      const heartbeat = setInterval(sendHeartbeat, 15_000);
       ws.once("close", () => clearInterval(heartbeat));
     });
 
