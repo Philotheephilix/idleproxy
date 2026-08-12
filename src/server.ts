@@ -144,7 +144,14 @@ export function buildServer(deps: ServerDeps): Hono {
   // process, so the router needs to accept requests from wherever it ends
   // up deployed. Tighten to a specific CORS_ORIGIN later if needed.
   app.use("/api/*", cors());
-  app.use("/v1/*", cors());
+  // The x402 response headers are the receipt for a paid call, and a browser
+  // client cannot read them cross-origin unless they are named here — without
+  // this the web UI can pay and get a completion but never learn which
+  // transaction settled it.
+  app.use(
+    "/v1/*",
+    cors({ exposeHeaders: ["x-idleproxy-settlement-tx", "x-idleproxy-attestation", "x-idleproxy-node"] }),
+  );
 
   // --- Per-consumer rate limiting (PLAN.md 1.3, disclosed as "Partial" in
   // SPEC.md §7). Fixed window in memory — fine for a single-process

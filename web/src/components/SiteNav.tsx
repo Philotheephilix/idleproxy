@@ -5,6 +5,7 @@ import { StartCta } from "./StartCta";
 const LINKS = [
   { href: "/#how", label: "How it works" },
   { href: "/#start", label: "Start earning" },
+  { href: "/try", label: "Buy a call" },
   { href: "/#surfaces", label: "KeeperHub" },
 ];
 

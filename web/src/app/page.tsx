@@ -1,3 +1,4 @@
+import Link from "next/link";
 import SplitText from "@/components/reactbits/SplitText/SplitText";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -197,6 +198,23 @@ export default function Home() {
                     {CONSUMER_SNIPPET}
                   </pre>
                 </div>
+
+                <Link
+                  href="/try"
+                  className="group mt-6 inline-flex items-center gap-2.5 rounded-xl border border-pay/40 px-5 py-3 font-display text-[14.5px] font-medium text-pay transition-colors hover:border-pay hover:bg-pay-deep/40"
+                >
+                  Run that handshake in the browser
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <path
+                      d="M2 8h11m0 0-4.2-4.2M13 8l-4.2 4.2"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="transition-transform group-hover:translate-x-0.5"
+                    />
+                  </svg>
+                </Link>
               </div>
             </div>
           </div>
