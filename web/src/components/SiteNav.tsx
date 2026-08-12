@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Wordmark } from "./Brand";
-import { StartCta } from "./StartCta";
+import { NavWallet } from "./NavWallet";
 
 const LINKS = [
   { href: "/#how", label: "How it works" },
@@ -34,16 +34,15 @@ export function SiteNav({ dashboard = false }: { dashboard?: boolean }) {
             <span className="live-dot size-1.5 rounded-full bg-cap" />
             BASE SEPOLIA
           </span>
-          {dashboard ? (
+          {dashboard && (
             <Link
               href="/"
               className="rounded-lg border border-line-2 bg-elev px-3.5 py-2 font-mono text-xs text-fg transition-colors hover:border-cap hover:text-cap"
             >
               Back to site
             </Link>
-          ) : (
-            <StartCta variant="nav" />
           )}
+          <NavWallet dashboard={dashboard} />
         </div>
       </div>
     </header>

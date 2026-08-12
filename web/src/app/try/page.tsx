@@ -52,7 +52,10 @@ type Failure = { kind: RouterErrorKind | "rejected"; message: string };
 export default function TryPage() {
   const { login, authenticated, ready } = usePrivy();
   const { wallets, ready: walletsReady } = useWallets();
-  const wallet = walletsReady ? wallets[0] : undefined;
+  // Gated on `authenticated` so that disconnecting from the nav — which logs
+  // out of Privy, but cannot revoke an injected wallet's site permission —
+  // really does drop the payer here too.
+  const wallet = authenticated && walletsReady ? wallets[0] : undefined;
 
   const [prompt, setPrompt] = useState(EXAMPLE_PROMPT);
   const [phase, setPhase] = useState<Phase>("idle");
