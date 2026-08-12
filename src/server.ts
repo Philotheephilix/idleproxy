@@ -780,7 +780,7 @@ export function buildServer(deps: ServerDeps): Hono {
     // pointing --router-ws-url at this router explicitly, cmdNode falls
     // back to its ws://localhost:8787/node default and every remote
     // provider's node fails to connect.
-    const routerWsUrl = env.BASE_URL.replace(/^http/, "ws") + "/node";
+    const routerWsUrl = env.PUBLIC_ROUTER_WS_URL || env.BASE_URL.replace(/^http/, "ws") + "/node";
     const command =
       `npx idleproxy node --wallet=${auth.wallet} --token=${nodeToken} ` +
       `--router-ws-url=${routerWsUrl} ` +

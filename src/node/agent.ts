@@ -129,7 +129,7 @@ export async function runNode(cfg: NodeConfig): Promise<void> {
     const ws = new WebSocket(cfg.routerWsUrl);
 
     ws.on("open", () => {
-      console.log(`connected to ${cfg.routerWsUrl}`);
+      console.log(`[${new Date().toISOString()}] connected to ${cfg.routerWsUrl}`);
       ws.send(
         JSON.stringify({
           type: "hello",
@@ -163,7 +163,11 @@ export async function runNode(cfg: NodeConfig): Promise<void> {
         return;
       }
       if (msg.type === "error") {
-        console.error(`router: ${msg.message}`);
+        console.error(`[${new Date().toISOString()}] router: ${msg.message}`);
+        return;
+      }
+      if (msg.type === "hello_ack") {
+        console.log(`[${new Date().toISOString()}] hello_ack received, nodeId=${msg.nodeId}`);
         return;
       }
       if (msg.type !== "job") return;
@@ -212,8 +216,8 @@ export async function runNode(cfg: NodeConfig): Promise<void> {
       );
     });
 
-    ws.on("close", () => {
-      console.log("disconnected, reconnecting in 3s...");
+    ws.on("close", (code, reason) => {
+      console.log(`[${new Date().toISOString()}] disconnected code=${code} reason=${reason} reconnecting in 3s...`);
       setTimeout(connect, 3000);
     });
 

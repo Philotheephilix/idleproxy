@@ -24,6 +24,13 @@ const envSchema = z.object({
 
   NODE_TOKEN: z.string().default(""),
   ROUTER_WS_URL: z.string().default("ws://localhost:8787/node"),
+  // Overrides the router-ws-url baked into node-token's generated command
+  // when it can't just be derived from BASE_URL (http->ws) -- e.g. this
+  // deployment's WS traffic bypasses a reverse proxy that Deployment notes
+  // explain drops long-lived WS connections, so providers dial a different
+  // host/port than the plain HTTPS API. Empty means "derive from BASE_URL"
+  // as before.
+  PUBLIC_ROUTER_WS_URL: z.string().default(""),
   CLAUDE_CREDENTIALS_PATH: z.string().default("~/.claude/.credentials.json"),
 
   KEEPERHUB_MCP_URL: z.string().default("https://app.keeperhub.com/mcp"),

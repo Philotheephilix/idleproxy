@@ -10,6 +10,19 @@ services:
       - router-data:/app/data
     networks:
       - coolify
+    ports:
+      # WS connections (provider nodes dialing /node) drop consistently when
+      # proxied through Traefik's HTTPS entrypoint (HTTP/2 + HTTP/3 both
+      # enabled there) -- confirmed by bypassing Traefik entirely (SSH
+      # tunnel straight to the container) and getting a rock-solid
+      # connection where the proxied path dropped with WS close code 1005
+      # ~1s after every single handshake. REST calls through Traefik are
+      # unaffected (only long-lived WS is), so: expose this port directly,
+      # unencrypted, host firewall-permitting -- ws:// only, not wss://.
+      # Documented gap, not silent: node-token's generated command still
+      # needs to point here instead of the wss:// Traefik path (see
+      # server.ts's routerWsUrl derivation).
+      - "8787:8787"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=coolify"
