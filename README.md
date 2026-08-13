@@ -1,46 +1,62 @@
 # IdleProxy
 
-> You pay for a coding-agent subscription. Most hours it sits idle. IdleProxy meters that capacity
-> out to agents that pay per call — and every payment in and every payout out is executed onchain
-> through [KeeperHub](https://keeperhub.com).
-
-A provider runs one command. It invokes the `claude` binary they already installed and logged into,
-as a subprocess, on their own machine. The OAuth token is never read, parsed, or transmitted — a copy
-of the credential file is dropped into a throwaway `HOME` and the binary is started there. Consumers
-point an unmodified Anthropic SDK at the router's base URL and pay per call in Base Sepolia
-test-USDC.
-
-**Relaying your own subscription like this likely violates your provider's resale terms.** This
-demo runs on the team's own accounts, at the team's own risk. What's submitted here is the metering
-and settlement rail — backend-agnostic, disclosed to every provider before they connect.
+**Sell the hours your coding-agent subscription sits idle — settled onchain through [KeeperHub](https://keeperhub.com).**
 
 Built for the KeeperHub "Agents Onchain" hackathon.
 
-## Architecture
+🔗 **Live**: [idleproxy-web.vercel.app](https://idleproxy-web.vercel.app) · **Router**: `router.valanamal.xyz` · **Proof**: real settlement tx [`0x827bb3dc...`](https://sepolia.basescan.org/tx/0x827bb3dc1c2d91a7c070e72e02f6585cf4dc6cf34976ead6b88e3729e03b9413)
 
-```
-CONSUMER                              ROUTER (idleproxy serve)                 PROVIDER
- Anthropic/OpenAI SDK,   402   ┌──────────────────────────────┐   WS (outbound)  idleproxy node
- or an MCP client       ─────► │ x402 verify → dispatch →     │ ◄──────────────  claude -p, throwaway
-                        X-PAY  │ settle via KeeperHub →       │   dial-out       HOME, no host mounts
-                        ─────► │ respond                      │
-                                │                              │
-                                │ SQLite: payments, jobs,      │
-                                │ nodes, balances, payouts     │
-                                └──────────┬───────────────────┘
-                                           │ Direct Execution API (x402 settlement)
-                                           │ MCP (treasurer agent → payout workflow)
-                                           ▼
-                                      KEEPERHUB
-                          contract-call → transferWithAuthorization
-                          Payout workflow: Webhook trigger → Check Treasury
-                            Balance → Solvency Gate → Pay Provider
-                          Solvency Watchdog: Block trigger → Check Balance →
-                            Read Decimals → Condition
+---
+
+## The problem
+
+Every Claude Code subscription is billed flat but used in bursts. You pay for peak capacity; the other twenty-plus hours a day it just evaporates — unused, unpaid-for, non-transferable.
+
+Meanwhile, agents and scripts that want a single coding-model call have no honest way to get one. No subscription, no API key to provision, no middleman to trust with a card — just a call, priced for what it costs, paid the instant it happens.
+
+Two sides of the same wasted market, and nothing connecting them.
+
+## The solution
+
+IdleProxy is the metering and settlement rail between them. A provider runs one command on the machine they're already logged into `claude` on. Their OAuth credential is never read, parsed, or transmitted — a throwaway copy runs the binary, nothing leaves the machine. A consumer points an unmodified Anthropic SDK at the router and pays per call in USDC via x402, on Base Sepolia.
+
+Every dollar in and every dollar out moves through KeeperHub — a real onchain `transferWithAuthorization`, verified locally and broadcast by KeeperHub itself, and a real KeeperHub payout workflow that settles the provider out. The router never holds a signing key for the treasury.
+
+**Relaying your own subscription like this likely violates your provider's resale terms.** That's disclosed to every provider before they connect, not buried. This proves the rail is buildable safely and transparently; it doesn't resolve the policy question, and doesn't pretend to.
+
+## How it works
+
+```mermaid
+sequenceDiagram
+    participant C as Consumer<br/>(Anthropic SDK / MCP)
+    participant R as Router<br/>(idleproxy serve)
+    participant P as Provider node<br/>(claude, throwaway HOME)
+    participant K as KeeperHub
+
+    P->>R: WS connect (outbound, dial-out)
+
+    C->>R: POST /v1/messages
+    R-->>C: 402 — scheme, asset, price, payTo
+    C->>C: sign EIP-3009 authorization
+    C->>R: retry + X-PAYMENT
+
+    R->>R: verify signature, check caps + reserve
+    R->>P: dispatch prompt (WS)
+    P->>P: run claude locally
+    P-->>R: result
+
+    R->>K: contract-call (transferWithAuthorization)
+    K->>K: broadcast onchain
+    K-->>R: settlement tx
+    R-->>C: response + settlement tx
+
+    Note over K: Payout workflow (separate)<br/>Webhook → Check Treasury Balance<br/>→ Solvency Gate → Pay Provider
+    K-->>P: payout, once threshold reached
+
+    Note over K: Solvency Watchdog (independent)<br/>Block trigger → Check Balance<br/>→ Read Decimals → Condition
 ```
 
-The **treasurer** is a real Claude Code agent with the KeeperHub MCP server attached — it calls
-`execute_workflow` + `get_execution` to run payouts, not a cron job pretending to be one.
+The **treasurer** is a real Claude Code agent with the KeeperHub MCP server attached — it calls `execute_workflow` + `get_execution` to run payouts, not a cron job pretending to be one.
 
 ## KeeperHub surfaces used
 
@@ -60,14 +76,16 @@ Watchdog's "alert" is KeeperHub's own Executions API rather than a push notifica
 settlement-scheduling hook is driven by `idleproxy treasurer` rather than a KeeperHub Schedule
 trigger.
 
+## Try it right now
+
+- **Pay for a call, no setup**: [idleproxy-web.vercel.app/try](https://idleproxy-web.vercel.app/try) — connect a wallet holding test USDC, write a prompt, watch the x402 handshake happen live, get a real response with a Basescan link to the transaction that paid for it.
+- **Become a provider**: [idleproxy-web.vercel.app](https://idleproxy-web.vercel.app) — connect wallet → accept disclosure → set caps → copy one `npx idleproxy node ...` command → run it on the machine you're logged into `claude` on. A fresh wallet reaches an earning node in under a minute.
+
 ## Install — contribute your idle Claude capacity
 
-No clone, no build, no config file. If a router is already running somewhere (see
-[Hosted instance](#hosted-instance) below), all you need is `npx` and a `claude` login already on
-your machine:
+No clone, no build, no config file. Just `npx` and a `claude` login already on your machine:
 
-1. Open the site (the hosted instance, or `http://localhost:8787` if you're running one yourself —
-   see [Run it yourself](#run-it-yourself) below).
+1. Open [the hosted instance](https://idleproxy-web.vercel.app) (or `http://localhost:8787` if [running your own](#run-it-yourself)).
 2. Click **Connect wallet** and sign the sign-in message. Any injected wallet (MetaMask, Coinbase
    Wallet, etc.) or Privy's email flow works.
 3. Read and check the disclosure box. Also check the Tier 1 box if you want to opt into the
@@ -85,14 +103,7 @@ your machine:
 6. That's it — the node shows **online** on `/dashboard`, where you can watch accrued balance, job
    history, and payout history live, and hit **Kill switch** any time to stop earning.
 
-A fresh wallet reaches an earning node in under a minute. The OAuth token in your `claude` login is
-never read, parsed, or transmitted — a copy of the credential file is dropped into a throwaway `HOME`
-and the binary is started there.
-
-## Hosted instance
-
-`https://idleproxy-web.vercel.app` (web/dashboard) talking to `https://router.valanamal.xyz`
-(router). Base Sepolia testnet — see [What honestly cannot work](#what-honestly-cannot-work).
+The OAuth token in your `claude` login is never read, parsed, or transmitted — a copy of the credential file is dropped into a throwaway `HOME` and the binary is started there.
 
 ## Run it yourself
 
@@ -106,9 +117,7 @@ npx tsx src/cli.ts serve     # router, on :8787 by default (pure API + WS, no UI
 
 The provider/consumer dashboard is a separate Next.js app in `web/` — `cd web && npm install && npm
 run dev` with `NEXT_PUBLIC_ROUTER_URL` pointed at your router. Talk to the router directly with `curl` if you'd
-rather skip the UI entirely — see Quickstart — consumer below.
-
-## Quickstart — consumer
+rather skip the UI entirely — see below.
 
 ```bash
 curl -X POST http://localhost:8787/v1/messages \
@@ -153,7 +162,7 @@ Next.js build step) so it can be hosted anywhere and talk to any router over its
 
 ## Bounty: being your own x402 facilitator
 
-```
+```bash
 npx tsx src/cli.ts facilitator-demo
 ```
 
